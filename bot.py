@@ -56,7 +56,6 @@ async def receive_update(request: Request):
                 })
                 
                 try:
-                    # We gebruiken een schone, snelle openbare muziek-API die niet wordt geblokkeerd
                     search_url = f"https://itunes.apple.com/search?term={query}&entity=song&limit=1"
                     res = await client.get(search_url)
                     result_data = res.json()
@@ -65,20 +64,36 @@ async def receive_update(request: Request):
                         song = result_data["results"][0]
                         track_name = song.get("trackName", query)
                         artist_name = song.get("artistName", "Unknown Artist")
-                        preview_url = song.get("previewUrl") # Een directe mp3 preview-link van Apple
+                        preview_url = song.get("previewUrl")
                         
                         if preview_url:
-                            # Stuur de audio direct door naar Telegram
-                            await client.post(
-                                f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
-                                json={
+                            # Download het audiobestand eerst lokaal als .m4a/.mp3
+                            audio_res = await client.get(preview_url)
+                            os.makedirs("downloads", exist_ok=True)
+                            file_path = f"downloads/{chat_id}.m4a"
+                            
+                            with open(file_path, "wb") as f:
+                                f.write(audio_res.content)
+                                
+                            # Stuur het bestand nu als echte audio naar Telegram
+                            with open(file_path, "rb") as audio_file:
+                                files = {"audio": audio_file}
+                                data_payload = {
                                     "chat_id": chat_id,
-                                    "audio": preview_url,
                                     "title": track_name,
                                     "performer": artist_name,
                                     "caption": f"🎵 {track_name} - {artist_name}"
                                 }
-                            )
+                                await client.post(
+                                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
+                                    data=data_payload,
+                                    files=files,
+                                    timeout=60.0
+                                )
+                                
+                            # Ruim het bestand lokaal op
+                            if os.path.exists(file_path):
+                                os.remove(file_path)
                         else:
                             await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                                 "chat_id": chat_id,
@@ -96,5 +111,3 @@ async def receive_update(request: Request):
                         "chat_id": chat_id,
                         "text": "❌ An error occurred while fetching the track."
                     })
-                    
-    return {"status": "ok"}
