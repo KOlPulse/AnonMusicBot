@@ -36,5 +36,5 @@ async def start_commando(client, message):
 @app.on_event("startup")
 async def startup_event():
     await bot.start()
-    await call_py.start()
-    print("Telegram bot en audio-speler succesvol gestart!")
+    # await call_py.start()
+    print("Telegram bot succesvol gestart!")
