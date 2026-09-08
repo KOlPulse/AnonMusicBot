@@ -1,7 +1,4 @@
-pyrofork
-tgcrypto==1.2.5
-py-tgcalls==2.3.3
-python-dotenv
-yt-dlp
 fastapi
 uvicorn
+httpx
+python-dotenv
