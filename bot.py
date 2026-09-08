@@ -13,16 +13,16 @@ app = FastAPI()
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def home():
-    return {"status": "Anon Music Bot Webhook is online en klaar voor muziek!"}
+    return {"status": "Anon Music Bot Webhook is online and ready for music!"}
 
 @app.on_event("startup")
 async def startup_event():
-    print("==== Instellen van Telegram Webhook... ====")
+    print("==== Setting up Telegram Webhook... ====")
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
     async with httpx.AsyncClient() as client:
         response = await client.get(url)
-        print(f"Webhook registratie antwoord: {response.text}")
-    print("==== WEBHOOK SERVER IS KLAAR VOOR ACTIE! ====")
+        print(f"Webhook registration response: {response.text}")
+    print("==== WEBHOOK SERVER IS READY FOR ACTION! ====")
 
 @app.post("/webhook")
 async def receive_update(request: Request):
@@ -32,11 +32,11 @@ async def receive_update(request: Request):
         message = data["message"]
         chat_id = message["chat"]["id"]
         text = message.get("text", "")
-        user_name = message["from"].get("first_name", "Vriend")
+        user_name = message["from"].get("first_name", "Friend")
         
         async with httpx.AsyncClient() as client:
             if text.startswith("/start"):
-                reply_text = f"🤖 Vibe on, {user_name}! Typ **/play [naam van een liedje]** om muziek te zoeken en te luisteren!"
+                reply_text = f"🤖 Vibe on, {user_name}! Type **/play [song name]** to search and listen to music!"
                 await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
                     "text": reply_text
@@ -47,24 +47,22 @@ async def receive_update(request: Request):
                 if not query:
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": "⚠️ Gebruik: /play [artiest of titel], bijvoorbeeld: /play Armin van Buuren"
+                        "text": "⚠️ Usage: /play [artist or title], for example: /play Armin van Buuren"
                     })
                     return {"status": "ok"}
                 
-                # Geef direct seintje dat we aan het zoeken zijn
                 await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": f"🔍 Even geduld {user_name}, ik zoek '{query}' op YouTube..."
+                    "text": f"🔍 Please wait {user_name}, searching for '{query}' on YouTube..."
                 })
                 
                 try:
-                    # Zoek en download audio via yt-dlp
-                   ydl_opts = {
+                    ydl_opts = {
                         'format': 'bestaudio/best',
                         'outtmpl': 'downloads/%(id)s.%(ext)s',
                         'noplaylist': True,
                         'max_filesize': 50000000,
-                        'cookiefile': 'cookies.txt', # <--- Voeg deze regel toe!
+                        'cookiefile': 'cookies.txt',
                     }
                     
                     os.makedirs("downloads", exist_ok=True)
@@ -77,18 +75,16 @@ async def receive_update(request: Request):
                             video_info = info
                             
                         file_path = ydl.prepare_filename(video_info)
-                        title = video_info.get('title', 'Muzieknummer')
-                        duration = video_info.get('duration', 0)
+                        title = video_info.get('title', 'Music Track')
                         performer = video_info.get('uploader', 'YouTube')
                     
-                    # Stuur het audiobestand naar Telegram
                     with open(file_path, "rb") as audio_file:
                         files = {"audio": audio_file}
                         data_payload = {
                             "chat_id": chat_id,
                             "title": title,
                             "performer": performer,
-                            "caption": f"🎵 Hier is je nummer: {title}"
+                            "caption": f"🎵 Here is your track: {title}"
                         }
                         await client.post(
                             f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
@@ -97,18 +93,17 @@ async def receive_update(request: Request):
                             timeout=60.0
                         )
                         
-                    # Ruim het bestand lokaal weer op
                     if os.path.exists(file_path):
                         os.remove(file_path)
                         
                 except Exception as e:
                     import traceback
                     fout_melding = traceback.format_exc()
-                    print(f"❌ UITGEBREIDE FOUT: {fout_melding}")
+                    print(f"❌ DETAILED ERROR: {fout_melding}")
                     
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"❌ Fout: {str(e)[:100]}"
+                        "text": f"❌ Error: {str(e)[:100]}"
                     })
                     
     return {"status": "ok"}
