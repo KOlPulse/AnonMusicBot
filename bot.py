@@ -15,13 +15,14 @@ app = FastAPI()
 def home():
     return {"status": "Anon Music Bot is online en gezond!"}
 
-# Telegram bot client
+# Telegram bot client met extra workers
 bot = Client(
     "AnonMusicBot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    in_memory=True
+    in_memory=True,
+    workers=4
 )
 
 @bot.on_message()
@@ -38,7 +39,7 @@ async def startup_event():
     print("==== Starten met verbinden naar Telegram... ====")
     await bot.start()
     
-    # Registreer de commando's direct bij Telegram zodat ze blauw/klikbaar worden
+    # Registreer de commando's direct bij Telegram
     try:
         from pyrogram.types import BotCommand
         await bot.set_bot_commands([
