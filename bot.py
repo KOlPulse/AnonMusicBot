@@ -101,10 +101,13 @@ async def receive_update(request: Request):
                         os.remove(file_path)
                         
                 except Exception as e:
-                    print(f"Fout bij downloaden/verzenden: {e}")
+                    import traceback
+                    fout_melding = traceback.format_exc()
+                    print(f"❌ UITGEBREIDE FOUT: {fout_melding}")
+                    
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": "❌ Oeps, er ging iets mis bij het ophalen van de muziek. Probeer het straks nog eens!"
+                        "text": f"❌ Fout: {str(e)[:100]}"
                     })
                     
     return {"status": "ok"}
