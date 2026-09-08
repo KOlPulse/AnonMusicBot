@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pyrogram import Client, filters
-from pytgcalls import GroupCallFactory
+from pytgcalls import PyTgCalls
 
 load_dotenv()
 
