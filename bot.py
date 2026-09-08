@@ -24,11 +24,17 @@ async def start_commando(client, message):
     print("🔔 Jaaa! Start commando gekregen op Telegram!")
     await message.reply_text("🤖 Vibe on! De gratis Anon Music Bot is wakker en klaar voor actie!")
 
-# Moderne FastAPI lifespan om de bot stabiel te laten draaien
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("==== Starten met verbinden naar Telegram... ====")
     await bot.start()
+    
+    # DIT IS DE FIX: Gooi oude webhooks weg zodat polling direct werkt!
+    try:
+        await bot.set_bot_commands([])
+    except:
+        pass
+        
     print("==== TELEGRAM BOT LUISTERST APPARAAT IS ACTIEF! ====")
     yield
     await bot.stop()
