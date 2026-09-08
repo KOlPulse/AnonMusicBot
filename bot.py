@@ -1,21 +1,20 @@
 import os
 import httpx
+import yt_dlp
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-# Je automatische Render URL
 WEBHOOK_URL = "https://anonmusicbot-b73b.onrender.com/webhook"
 
 app = FastAPI()
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def home():
-    return {"status": "Anon Music Bot Webhook is online en gezond!"}
+    return {"status": "Anon Music Bot Webhook is online en klaar voor muziek!"}
 
-# 1. Automatisch de webhook instellen bij opstarten van Render
 @app.on_event("startup")
 async def startup_event():
     print("==== Instellen van Telegram Webhook... ====")
@@ -25,29 +24,87 @@ async def startup_event():
         print(f"Webhook registratie antwoord: {response.text}")
     print("==== WEBHOOK SERVER IS KLAAR VOOR ACTIE! ====")
 
-# 2. Hier vangt Render de berichten op die Telegram naar ons stuurt
 @app.post("/webhook")
 async def receive_update(request: Request):
     data = await request.json()
     
-    # Check of er een bericht in zit
     if "message" in data:
         message = data["message"]
         chat_id = message["chat"]["id"]
         text = message.get("text", "")
         user_name = message["from"].get("first_name", "Vriend")
         
-        print(f"🚨 WEBHOOK ALERT: Bericht ontvangen van {user_name}: '{text}'")
-        
-        # Als iemand /start typt, sturen we direct antwoord via Telegram API
-        if text.startswith("/start"):
-            reply_text = f"🤖 Vibe on, {user_name}! De Webhook-versie van Anon Music Bot is wakker en klaar voor actie!"
-            
-            send_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            async with httpx.AsyncClient() as client:
-                await client.post(send_url, json={
+        async with httpx.AsyncClient() as client:
+            if text.startswith("/start"):
+                reply_text = f"🤖 Vibe on, {user_name}! Typ **/play [naam van een liedje]** om muziek te zoeken en te luisteren!"
+                await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
                     "text": reply_text
                 })
                 
+            elif text.startswith("/play"):
+                query = text.replace("/play", "").strip()
+                if not query:
+                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": "⚠️ Gebruik: /play [artiest of titel], bijvoorbeeld: /play Armin van Buuren"
+                    })
+                    return {"status": "ok"}
+                
+                # Geef direct seintje dat we aan het zoeken zijn
+                await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": f"🔍 Even geduld {user_name}, ik zoek '{query}' op YouTube..."
+                })
+                
+                try:
+                    # Zoek en download audio via yt-dlp
+                    ydl_opts = {
+                        'format': 'bestaudio/best',
+                        'outtmpl': 'downloads/%(id)s.%(ext)s',
+                        'noplaylist': True,
+                        'max_filesize': 50000000, # Max 50MB voor Telegram
+                    }
+                    
+                    os.makedirs("downloads", exist_ok=True)
+                    
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(f"ytsearch:{query}", download=True)
+                        if 'entries' in info:
+                            video_info = info['entries'][0]
+                        else:
+                            video_info = info
+                            
+                        file_path = ydl.prepare_filename(video_info)
+                        title = video_info.get('title', 'Muzieknummer')
+                        duration = video_info.get('duration', 0)
+                        performer = video_info.get('uploader', 'YouTube')
+                    
+                    # Stuur het audiobestand naar Telegram
+                    with open(file_path, "rb") as audio_file:
+                        files = {"audio": audio_file}
+                        data_payload = {
+                            "chat_id": chat_id,
+                            "title": title,
+                            "performer": performer,
+                            "caption": f"🎵 Hier is je nummer: {title}"
+                        }
+                        await client.post(
+                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
+                            data=data_payload,
+                            files=files,
+                            timeout=60.0
+                        )
+                        
+                    # Ruim het bestand lokaal weer op
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        
+                except Exception as e:
+                    print(f"Fout bij downloaden/verzenden: {e}")
+                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": "❌ Oeps, er ging iets mis bij het ophalen van de muziek. Probeer het straks nog eens!"
+                    })
+                    
     return {"status": "ok"}
