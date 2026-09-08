@@ -25,7 +25,7 @@ bot = Client(
     bot_token=BOT_TOKEN
 )
 
-call_py = PyTgCalls(bot)
+# call_py = PyTgCalls(bot)  <-- Hekje hier toevoegen!
 
 # Start-commando voor de bot
 @bot.on_message(filters.command("start"))
