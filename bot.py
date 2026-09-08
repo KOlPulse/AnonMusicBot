@@ -57,12 +57,13 @@ async def receive_update(request: Request):
                 })
                 
                 try:
+                    # yt-dlp opties geoptimaliseerd zonder cookies-bestand
                     ydl_opts = {
                         'format': 'bestaudio/best',
                         'outtmpl': 'downloads/%(id)s.%(ext)s',
                         'noplaylist': True,
                         'max_filesize': 50000000,
-                        'cookiefile': 'cookies.txt',
+                        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
                     }
                     
                     os.makedirs("downloads", exist_ok=True)
