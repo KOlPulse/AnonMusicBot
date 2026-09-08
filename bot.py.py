@@ -33,9 +33,14 @@ async def start_commando(client, message):
     print("🔔 Jaaa! Start commando gekregen op Telegram!")
     await message.reply_text("🤖 Vibe on! De gratis Anon Music Bot is wakker en klaar voor actie!")
 
-# De stabiele startup methode die nooit crasht op lussen
 @app.on_event("startup")
 async def startup_event():
     print("==== Starten met verbinden naar Telegram... ====")
     await bot.start()
     print("==== TELEGRAM BOT LUISTERST APPARAAT IS ACTIEF! ====")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    if bot.is_connected:
+        await bot.stop()
+    print("==== Bot netjes afgesloten ====")
