@@ -5,18 +5,17 @@ from pyrogram import Client, filters
 
 load_dotenv()
 
-# We gebruiken veilige standaarden (0 en "") voor het geval Render de code even kwijt is
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 app = FastAPI()
 
-@app.get("/")
+# 👇 DE REDDER IN NOOD: Nu accepteert de server de HEAD-inspectie van Render!
+@app.api_route("/", methods=["GET", "HEAD"])
 def home():
-    return {"status": "Anon Music Bot is online!"}
+    return {"status": "Anon Music Bot is online en gezond!"}
 
-# De toevoeging 'in_memory=True' is hier de ultieme redder!
 bot = Client(
     "AnonMusicBot",
     api_id=API_ID,
@@ -27,7 +26,6 @@ bot = Client(
 
 @bot.on_message(filters.command("start"))
 async def start_commando(client, message):
-    # Dit print een berichtje in je Render logs zodra jij /start typt!
     print("🔔 Jaaa! Start commando gekregen op Telegram!")
     await message.reply_text("🤖 Vibe on! De gratis Anon Music Bot is wakker en klaar voor actie!")
 
