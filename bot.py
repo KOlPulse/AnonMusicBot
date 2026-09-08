@@ -37,6 +37,17 @@ async def start_commando(client, message):
 async def startup_event():
     print("==== Starten met verbinden naar Telegram... ====")
     await bot.start()
+    
+    # Registreer de commando's direct bij Telegram zodat ze blauw/klikbaar worden
+    try:
+        from pyrogram.types import BotCommand
+        await bot.set_bot_commands([
+            BotCommand("start", "Start de muziek bot en activeer de vibe"),
+            BotCommand("play", "Speel een nummer af via YouTube")
+        ])
+    except Exception as e:
+        print(f"Kon commando's niet registreren: {e}")
+        
     print("==== TELEGRAM BOT LUISTERST APPARAAT IS ACTIEF! ====")
 
 @app.on_event("shutdown")
