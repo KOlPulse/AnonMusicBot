@@ -59,11 +59,12 @@ async def receive_update(request: Request):
                 
                 try:
                     # Zoek en download audio via yt-dlp
-                    ydl_opts = {
+                   ydl_opts = {
                         'format': 'bestaudio/best',
                         'outtmpl': 'downloads/%(id)s.%(ext)s',
                         'noplaylist': True,
-                        'max_filesize': 50000000, # Max 50MB voor Telegram
+                        'max_filesize': 50000000,
+                        'cookiefile': 'cookies.txt', # <--- Voeg deze regel toe!
                     }
                     
                     os.makedirs("downloads", exist_ok=True)
