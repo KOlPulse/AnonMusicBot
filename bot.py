@@ -19,22 +19,21 @@ bot = Client(
     in_memory=True
 )
 
+# 🚨 DE HARD WATERWIJZER: Vang ELK binnenkomend bericht op en print het in de logs!
+@bot.on_message()
+async def alles_zien(client, message):
+    print(f"🚨 ALERT: Bericht binnengekomen van {message.from_user.first_name if message.from_user else 'Onbekend'}: '{message.text}'")
+
 @bot.on_message(filters.command("start"))
 async def start_commando(client, message):
     print("🔔 Jaaa! Start commando gekregen op Telegram!")
     await message.reply_text("🤖 Vibe on! De gratis Anon Music Bot is wakker en klaar voor actie!")
 
+# Moderne FastAPI lifespan om de bot stabiel te laten draaien
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("==== Starten met verbinden naar Telegram... ====")
     await bot.start()
-    
-    # DIT IS DE FIX: Gooi oude webhooks weg zodat polling direct werkt!
-    try:
-        await bot.set_bot_commands([])
-    except:
-        pass
-        
     print("==== TELEGRAM BOT LUISTERST APPARAAT IS ACTIEF! ====")
     yield
     await bot.stop()
