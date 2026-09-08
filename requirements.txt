@@ -1,6 +1,6 @@
 pyrogram==2.0.106
 tgcrypto==1.2.5
-py-tgcalls==2.3.3
+pytgcalls==3.0.0.dev24
 python-dotenv
 yt-dlp
 fastapi
