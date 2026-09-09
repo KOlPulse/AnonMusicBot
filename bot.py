@@ -1,9 +1,6 @@
 import os
-import asyncio
-import httpx
 import yt_dlp
 from dotenv import load_dotenv
-from fastapi import FastAPI
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls
@@ -15,11 +12,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 API_ID = 38561709
 API_HASH = "45cb3c0d9a016faa268a269245e6fe4e"
 
-from contextlib import asynccontextmanager
-
-app = FastAPI()
-
-# Pyrogram Client en PyTgCalls op dezelfde event-loop
+# Initialiseer de client en py-tgcalls
 bot_client = Client(
     "VibeMusicBot",
     api_id=API_ID,
@@ -28,25 +21,6 @@ bot_client = Client(
 )
 call_py = PyTgCalls(bot_client)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Verwijder de oude webhook bij Telegram zodat de bot weer normaal kan luisteren
-    async with httpx.AsyncClient() as client:
-        await client.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
-        
-    await bot_client.start()
-    await call_py.start()
-    print("==== PYROGRAM BOT & VOICE DJ IS READY! ====")
-    yield
-    await bot_client.stop()
-
-app.router.lifespan_context = lifespan
-
-@app.api_route("/", methods=["GET", "HEAD"])
-def home():
-    return {"status": "Anon Music Bot Voice Chat is online!"}
-
-# --- NATIV# --- NATIVE PYROGRAM COMMANDO HANDLER ---
 @bot_client.on_message(filters.command("play"))
 async def play_command(client, message: Message):
     print(f"==== ONTVANGEN COMMANDO: {message.text} van {message.from_user.first_name} ====")
@@ -82,7 +56,7 @@ async def play_command(client, message: Message):
             await status_msg.edit_text("❌ Geen bruikbare, onbeveiligde stream gevonden.")
             return
         
-        # Start direct in de Voice Chat op dezelfde event loop!
+        # Start direct in de Voice Chat
         await call_py.play(
             chat_id,
             MediaStream(audio_url)
@@ -93,3 +67,13 @@ async def play_command(client, message: Message):
     except Exception as e:
         print(f"FOUT IN VOICE CHAT: {str(e)}")
         await status_msg.edit_text(f"❌ Fout bij opstarten in Voice Chat: {str(e)}")
+
+if __name__ == "__main__":
+    print("==== STARTEN PYROGRAM MUSIC BOT (Standalone) ====")
+    # Start zowel de Voice Calls als de Pyrogram client gelijktidirg in één event loop
+    bot_client.start()
+    call_py.start()
+    
+    # Hou de bot draaiende
+    import pyrogram
+    pyrogram.idle()
