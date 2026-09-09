@@ -1,6 +1,5 @@
 import os
 import httpx
-import yt_dlp
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 
@@ -36,7 +35,7 @@ async def receive_update(request: Request):
         
         async with httpx.AsyncClient(timeout=120.0) as client:
             if text.startswith("/start"):
-                reply_text = f"🤖 Vibe on, {user_name}! Type **/play [song name]** to search and listen to music!"
+                reply_text = f"🤖 Vibe on, {user_name}! Type **/play [song name]** to listen to full tracks!"
                 await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
                     "text": reply_text
@@ -53,52 +52,67 @@ async def receive_update(request: Request):
                 
                 await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": f"⬇️ Searching and downloading full track from SoundCloud: '{query}'..."
+                    "text": f"🔍 Searching for full track: '{query}'..."
                 })
                 
                 try:
-                    # Gebruik SoundCloud via yt-dlp om YouTube-blokkades compleet te omzeilen
-                    ydl_opts = {
-                        'format': 'bestaudio/best',
-                        'outtmpl': 'downloads/%(id)s.%(ext)s',
-                        'noplaylist': True,
-                        'max_filesize': 50000000, # Maximaal 50MB per bestand
-                    }
+                    # Gebruik de Muziek API voor DRM-vrije, volledige nummers
+                    search_url = f"https://saavn.dev/api/search/songs?query={query}"
+                    res = await client.get(search_url)
+                    api_data = res.json()
                     
-                    os.makedirs("downloads", exist_ok=True)
-                    
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        # scsearch: zorgt dat hij SoundCloud doorzoekt in plaats van YouTube
-                        info = ydl.extract_info(f"scsearch:{query}", download=True)
+                    if api_data.get("success") and api_data.get("data", {}).get("results"):
+                        song = api_data["data"]["results"][0]
+                        title = song.get("name", query).replace("&quot;", '"').replace("&amp;", "&")
+                        artists = song.get("primaryArtists", "Unknown Artist")
+                        download_urls = song.get("downloadUrl", [])
                         
-                        if 'entries' in info and len(info['entries']) > 0:
-                            video_info = info['entries'][0]
-                        else:
-                            video_info = info
+                        if download_urls:
+                            # Pak de hoogste audiokwaliteit uit de lijst
+                            best_audio_url = download_urls[-1]["url"]
                             
-                        file_path = ydl.prepare_filename(video_info)
-                        title = video_info.get('title', query)
-                        performer = video_info.get('uploader', 'Unknown Artist')
-                    
-                    # Stuur het bestand als echte muziekspeler naar Telegram
-                    with open(file_path, "rb") as audio_file:
-                        files = {"audio": audio_file}
-                        data_payload = {
+                            await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                                "chat_id": chat_id,
+                                "text": f"✅ Found it! Downloading full track: {title}... (Give me a few seconds)"
+                            })
+                            
+                            # Download audio lokaal
+                            audio_res = await client.get(best_audio_url, follow_redirects=True)
+                            os.makedirs("downloads", exist_ok=True)
+                            file_path = f"downloads/{chat_id}_full.m4a"
+                            
+                            with open(file_path, "wb") as f:
+                                f.write(audio_res.content)
+                                
+                            # Stuur het bestand als echte muziekspeler naar Telegram
+                            with open(file_path, "rb") as audio_file:
+                                files = {"audio": audio_file}
+                                data_payload = {
+                                    "chat_id": chat_id,
+                                    "title": title,
+                                    "performer": artists,
+                                    "caption": f"🎵 {title} - {artists} (Full Track)"
+                                }
+                                await client.post(
+                                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
+                                    data=data_payload,
+                                    files=files,
+                                    timeout=120.0
+                                )
+                                
+                            # Ruim de server weer netjes op
+                            if os.path.exists(file_path):
+                                os.remove(file_path)
+                        else:
+                            await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                                "chat_id": chat_id,
+                                "text": "❌ Found the song, but no download links are available."
+                            })
+                    else:
+                        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": chat_id,
-                            "title": title,
-                            "performer": performer,
-                            "caption": f"🎵 {title} - {performer} (Full Track)"
-                        }
-                        await client.post(
-                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
-                            data=data_payload,
-                            files=files,
-                            timeout=120.0
-                        )
-                        
-                    # Ruim de server weer netjes op
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
+                            "text": f"❌ Could not find '{query}'."
+                        })
                         
                 except Exception as e:
                     import traceback
@@ -106,7 +120,7 @@ async def receive_update(request: Request):
                     print(f"❌ ERROR: {fout_melding}")
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"❌ An error occurred while fetching the track: {str(e)[:100]}"
+                        "text": f"❌ An error occurred: {str(e)[:100]}"
                     })
                     
     return {"status": "ok"}
