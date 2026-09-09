@@ -4,5 +4,4 @@ httpx
 python-dotenv
 yt-dlp
 pyrogram
-pytgcalls
-ntgcalls
+py-tgcalls
