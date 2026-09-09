@@ -47,7 +47,8 @@ def get_audio_url(query: str):
         'quiet': True,
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"ytsearch:{query}", download=False)
+        # Zoek via SoundCloud in plaats van YouTube
+        info = ydl.extract_info(f"scsearch:{query}", download=False)
         if 'entries' in info:
             info = info['entries'][0]
         return info['url'], info.get('title', 'Onbekend nummer')
