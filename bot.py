@@ -1,5 +1,6 @@
 import os
 import httpx
+import yt_dlp
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 
@@ -8,8 +9,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 WEBHOOK_URL = "https://anonmusicbot-b73b.onrender.com/webhook"
 
-# 1. Vul hier straks jouw eigen Telegram User ID in! (Bijv: [123456789, 987654321])
-# Laat de lijst leeg [] om iedereen tijdelijk toegang te geven.
+# Vul hier straks jouw eigen Telegram User ID in! (Bijv: [123456789, 987654321])
 ADMIN_IDS = [] 
 
 app = FastAPI()
@@ -57,65 +57,61 @@ async def receive_update(request: Request):
                 
                 await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": f"🔍 Searching music database for: '{query}'..."
+                    "text": f"🔍 Smart searching SoundCloud for: '{query}'..."
                 })
                 
                 try:
-                    # --- VERCEL API MIRRORS (Geen IP Blokkades) ---
-                    mirrors = [
-                        "https://jiosaavn-api-privatecvc2.vercel.app",
-                        "https://saavn-api-v3.vercel.app",
-                        "https://jiosaavn-api-ten-eta.vercel.app"
-                    ]
+                    ydl_opts = {
+                        'format': 'bestaudio/best',
+                        'outtmpl': 'downloads/%(id)s.%(ext)s',
+                        'noplaylist': True,
+                        'max_filesize': 50000000,
+                        'quiet': True,
+                        'no_warnings': True,
+                    }
                     
-                    best_audio_url, title, author = None, None, None
+                    os.makedirs("downloads", exist_ok=True)
+                    file_path = None
+                    title = None
+                    author = None
                     
-                    for mirror in mirrors:
-                        try:
-                            res = await client.get(f"{mirror}/search/songs?query={query}", timeout=10.0)
-                            if res.status_code == 200:
-                                api_data = res.json()
-                                results = []
-                                
-                                # Check beide veelvoorkomende JSON architecturen van deze API
-                                if isinstance(api_data, dict) and "data" in api_data:
-                                    if isinstance(api_data["data"], dict) and "results" in api_data["data"]:
-                                        results = api_data["data"]["results"]
-                                    elif isinstance(api_data["data"], list):
-                                        results = api_data["data"]
-                                        
-                                if results:
-                                    song = results[0]
-                                    title = song.get("name", query).replace("&quot;", '"')
-                                    author = song.get("primaryArtists", "Unknown Artist")
-                                    downloads = song.get("downloadUrl", [])
-                                    
-                                    if downloads:
-                                        best_audio_url = downloads[-1]["url"]
-                                        break # Gevonden! Stop met zoeken.
-                        except Exception:
-                            continue
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        # Zoek de top 5 resultaten (download nog niets)
+                        info = ydl.extract_info(f"scsearch5:{query}", download=False)
+                        
+                        if not info or 'entries' not in info or not info['entries']:
+                            await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                                "chat_id": chat_id,
+                                "text": f"❌ Could not find any tracks for '{query}'."
+                            })
+                            return {"status": "ok"}
                             
-                    if not best_audio_url:
+                        # Loop door de 5 resultaten om de DRM beveiliging te omzeilen
+                        for entry in info['entries']:
+                            try:
+                                # Probeer dit specifieke nummer te downloaden
+                                dl_info = ydl.extract_info(entry['url'], download=True)
+                                file_path = ydl.prepare_filename(dl_info)
+                                title = dl_info.get('title', query)
+                                author = dl_info.get('uploader', 'Unknown Artist')
+                                break # Gelukt! Breek direct uit de loop.
+                            except Exception as e:
+                                print(f"Skipping track due to error (likely DRM): {e}")
+                                continue # Error of DRM slot? Geen paniek, we proberen de volgende in de lijst!
+                                
+                    if not file_path or not os.path.exists(file_path):
                         await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": chat_id,
-                            "text": f"❌ Could not find '{query}' in the database."
+                            "text": f"❌ Found tracks, but all were DRM protected or unavailable."
                         })
                         return {"status": "ok"}
                         
+                    # Succes! Stuur het bestand als echte audiospeler
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"✅ Found: {title}! Downloading full track..."
+                        "text": f"✅ Found an unlocked track! Uploading {title}..."
                     })
                     
-                    # --- DOWNLOAD & STUUR NAAR TELEGRAM ---
-                    audio_res = await client.get(best_audio_url, follow_redirects=True, timeout=120.0)
-                    os.makedirs("downloads", exist_ok=True)
-                    file_path = f"downloads/{chat_id}_full.m4a"
-                    
-                    with open(file_path, "wb") as f:
-                        f.write(audio_res.content)
-                        
                     with open(file_path, "rb") as audio_file:
                         files = {"audio": audio_file}
                         data_payload = {
@@ -131,6 +127,7 @@ async def receive_update(request: Request):
                             timeout=120.0
                         )
                         
+                    # Ruim de server netjes op
                     if os.path.exists(file_path):
                         os.remove(file_path)
                         
@@ -138,7 +135,7 @@ async def receive_update(request: Request):
                     print(f"❌ ERROR: {e}")
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"❌ An error occurred while downloading."
+                        "text": f"❌ An unexpected error occurred during the search process."
                     })
                     
     return {"status": "ok"}
