@@ -2,7 +2,7 @@ import os
 import asyncio
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.enums import ChatType
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
@@ -90,10 +90,7 @@ async def main():
     await app.start()
     await call_py.start()
     print("Telegram Bot en Voice Chat DJ draaien nu vlekkeloos!")
-    await asyncio.gather(
-        app.idle(),
-        call_py.idle()
-    )
+    await idle()  # DIT IS DE CRUCIALE FIX!
 
 if __name__ == "__main__":
     asyncio.run(main())
