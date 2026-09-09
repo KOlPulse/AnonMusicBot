@@ -1,5 +1,6 @@
 import os
 import httpx
+import yt_dlp
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 
@@ -33,7 +34,6 @@ async def receive_update(request: Request):
         text = message.get("text", "")
         user_name = message["from"].get("first_name", "Friend")
         
-        # We zetten een langere timeout (120 seconden) omdat hele nummers downloaden even duurt
         async with httpx.AsyncClient(timeout=120.0) as client:
             if text.startswith("/start"):
                 reply_text = f"🤖 Vibe on, {user_name}! Type **/play [song name]** to search and listen to music!"
@@ -53,78 +53,41 @@ async def receive_update(request: Request):
                 
                 await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": f"🔍 Searching for full track: '{query}'..."
+                    "text": f"⬇️ Searching and downloading full track from SoundCloud: '{query}'..."
                 })
                 
                 try:
-                    # 1. Zoeken via de Piped API (omzeilt YouTube IP blokkades)
-                    search_url = f"https://pipedapi.kavin.rocks/search?q={query}&filter=all"
-                    res = await client.get(search_url)
-                    search_data = res.json()
+                    # Gebruik SoundCloud via yt-dlp om YouTube-blokkades compleet te omzeilen
+                    ydl_opts = {
+                        'format': 'bestaudio/best',
+                        'outtmpl': 'downloads/%(id)s.%(ext)s',
+                        'noplaylist': True,
+                        'max_filesize': 50000000, # Maximaal 50MB per bestand
+                    }
                     
-                    items = search_data.get("items", [])
-                    if not items:
-                        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                            "chat_id": chat_id,
-                            "text": f"❌ Could not find '{query}'."
-                        })
-                        return {"status": "ok"}
-                        
-                    # Pak de eerste echte video uit de resultaten
-                    video = next((item for item in items if item["type"] == "stream"), None)
-                    if not video:
-                        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                            "chat_id": chat_id,
-                            "text": "❌ No valid video found."
-                        })
-                        return {"status": "ok"}
-                        
-                    # Extraheer de gegevens
-                    video_id = video["url"].split("?v=")[-1]
-                    title = video.get("title", "Music Track")
-                    uploader = video.get("uploaderName", "Unknown Artist")
-                    
-                    # 2. Haal de directe audio streams op
-                    streams_url = f"https://pipedapi.kavin.rocks/streams/{video_id}"
-                    streams_res = await client.get(streams_url)
-                    streams_data = streams_res.json()
-                    
-                    audio_streams = streams_data.get("audioStreams", [])
-                    if not audio_streams:
-                        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                            "chat_id": chat_id,
-                            "text": "❌ No audio streams found for this video."
-                        })
-                        return {"status": "ok"}
-                        
-                    # Kies de stream met de juiste audio-indeling
-                    best_audio = audio_streams[0]["url"]
-                    for stream in audio_streams:
-                        if stream.get("mimeType", "").startswith("audio/mp4"):
-                            best_audio = stream["url"]
-                            break
-                            
-                    # 3. Download audio lokaal (zodat Telegram de echte muziekspeler laat zien)
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": f"⬇️ Downloading full track: {title}... (This can take a few seconds)"
-                    })
-                    
-                    audio_res = await client.get(best_audio, follow_redirects=True)
                     os.makedirs("downloads", exist_ok=True)
-                    file_path = f"downloads/{chat_id}_full.m4a"
                     
-                    with open(file_path, "wb") as f:
-                        f.write(audio_res.content)
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        # scsearch: zorgt dat hij SoundCloud doorzoekt in plaats van YouTube
+                        info = ydl.extract_info(f"scsearch:{query}", download=True)
                         
-                    # 4. Stuur het volledige nummer naar Telegram
+                        if 'entries' in info and len(info['entries']) > 0:
+                            video_info = info['entries'][0]
+                        else:
+                            video_info = info
+                            
+                        file_path = ydl.prepare_filename(video_info)
+                        title = video_info.get('title', query)
+                        performer = video_info.get('uploader', 'Unknown Artist')
+                    
+                    # Stuur het bestand als echte muziekspeler naar Telegram
                     with open(file_path, "rb") as audio_file:
                         files = {"audio": audio_file}
                         data_payload = {
                             "chat_id": chat_id,
                             "title": title,
-                            "performer": uploader,
-                            "caption": f"🎵 {title} - {uploader} (Full Track)"
+                            "performer": performer,
+                            "caption": f"🎵 {title} - {performer} (Full Track)"
                         }
                         await client.post(
                             f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
@@ -138,10 +101,12 @@ async def receive_update(request: Request):
                         os.remove(file_path)
                         
                 except Exception as e:
-                    print(f"❌ ERROR: {e}")
+                    import traceback
+                    fout_melding = traceback.format_exc()
+                    print(f"❌ ERROR: {fout_melding}")
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"❌ An error occurred while fetching the full track: {str(e)[:100]}"
+                        "text": f"❌ An error occurred while fetching the track: {str(e)[:100]}"
                     })
                     
     return {"status": "ok"}
