@@ -1,26 +1,32 @@
 import os
 import asyncio
+from fastapi import FastAPI
 from pyrogram import Client, filters
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
 import yt_dlp
 
-# Vaste API gegevens en bot token uit de omgeving of direct ingevuld
 API_ID = 38561709
 API_HASH = "45cb3c0d9a016faa268a269245e6fe4e"
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
-# 1. Start de Pyrogram Userbot/Bot client voor audio streaming
-app = Client(
+# 1. FastAPI Web Server (dit houdt Render online en groen)
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"status": "De Music Bot en Web Server draaien succesvol!"}
+
+# 2. De Pyrogram Telegram Bot
+bot = Client(
     "VibeMusicBot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
-call_py = PyTgCalls(app)
+call_py = PyTgCalls(bot)
 
-# Helper functie om YouTube audio te downloaden of stream-link op te halen
 def get_audio_url(query: str):
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -33,16 +39,15 @@ def get_audio_url(query: str):
             info = info['entries'][0]
         return info['url'], info.get('title', 'Onbekend nummer')
 
-@app.on_message(filters.command("start"))
+@bot.on_message(filters.command("start"))
 async def start_handler(client, message):
     await message.reply_text(
         "👋 Welcome to **AnonMusicBot**!\n\n"
         "Use `/play [search term]` to stream music directly into the Voice Chat and catch the vibe!"
     )
 
-@app.on_message(filters.command("play"))
+@bot.on_message(filters.command("play"))
 async def play_handler(client, message):
-    # Controleer of er een zoekterm is meegeleverd
     if len(message.command) < 2:
         await message.reply_text("⚠️ Gebruik: `/play [naam van het nummer]`")
         return
@@ -53,12 +58,9 @@ async def play_handler(client, message):
     status_msg = await message.reply_text(f"🔍 Zoeken naar **{query}**...")
 
     try:
-        # Zoek het nummer via yt-dlp
         audio_url, title = await asyncio.to_thread(get_audio_url, query)
-        
         await status_msg.edit_text(f"🎵 Verbinden met de Voice Chat voor: **{title}**...")
 
-        # Start de stream in de Voice Chat van de groep via de nieuwe methode
         await call_py.play(
             chat_id,
             MediaStream(audio_url)
@@ -69,15 +71,9 @@ async def play_handler(client, message):
     except Exception as e:
         await status_msg.edit_text(f"❌ Er is een fout opgetreden: {str(e)}")
 
-# Start de applicatie
-async def main():
-    await app.start()
+# 3. Koppel de Bot aan de opstartprocedure van de Web Server
+@app.on_event("startup")
+async def startup_event():
+    await bot.start()
     await call_py.start()
-    print("Bot en Voice Chat DJ draaien succesvol!")
-    await asyncio.gather(
-        app.idle(),
-        call_py.idle()
-    )
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    print("Telegram Bot en Voice Chat DJ draaien nu in de achtergrond!")
