@@ -83,10 +83,9 @@ async def receive_update(request: Request):
                     "text": f"🔍 Zoeken naar **{query}**..."
                 })
                 
-               try:
+                try:
                     audio_url, title = get_audio_url(query)
                     
-                    # Direct aanroepen op de actieve event loop van de webhook
                     await call_py.play(
                         chat_id,
                         MediaStream(audio_url)
