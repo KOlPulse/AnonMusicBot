@@ -2,7 +2,7 @@ import os
 import asyncio
 from pyrogram import Client, filters
 from pytgcalls import PyTgCalls
-from pytgcalls.types.input_stream import AudioPiped
+from pytgcalls.types import MediaStream
 import yt_dlp
 
 # Vaste API gegevens en bot token uit de omgeving of direct ingevuld
@@ -58,10 +58,10 @@ async def play_handler(client, message):
         
         await status_msg.edit_text(f"🎵 Verbinden met de Voice Chat voor: **{title}**...")
 
-        # Start de stream in de Voice Chat van de groep
-        await call_py.join_group_call(
+        # Start de stream in de Voice Chat van de groep via de nieuwe methode
+        await call_py.play(
             chat_id,
-            AudioPiped(audio_url)
+            MediaStream(audio_url)
         )
         
         await status_msg.edit_text(f"🎶 Nu live te horen in de Voice Chat: **{title}**!")
