@@ -46,9 +46,10 @@ app.router.lifespan_context = lifespan
 def home():
     return {"status": "Anon Music Bot Voice Chat is online!"}
 
-# --- NATIVE PYROGRAM COMMANDO HANDLER ---
+# --- NATIV# --- NATIVE PYROGRAM COMMANDO HANDLER ---
 @bot_client.on_message(filters.command("play"))
 async def play_command(client, message: Message):
+    print(f"==== ONTVANGEN COMMANDO: {message.text} van {message.from_user.first_name} ====")
     chat_id = message.chat.id
     query = message.text.replace("/play", "").strip()
     
@@ -90,4 +91,5 @@ async def play_command(client, message: Message):
         await status_msg.edit_text(f"🎶 Nu live te horen in de Voice Chat: **{title}**!")
 
     except Exception as e:
+        print(f"FOUT IN VOICE CHAT: {str(e)}")
         await status_msg.edit_text(f"❌ Fout bij opstarten in Voice Chat: {str(e)}")
