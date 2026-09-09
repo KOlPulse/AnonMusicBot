@@ -48,12 +48,10 @@ def get_audio_url(query: str):
         'ignoreerrors': True,
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Zoek gelijk naar de eerste 5 opties om een vrije track te vinden
         info = ydl.extract_info(f"scsearch5:{query}", download=False)
         if 'entries' in info:
             for entry in info['entries']:
                 if entry is not None and 'url' in entry:
-                    # Sla DRM-beveiligde of lege streams over
                     if entry.get('url'):
                         return entry['url'], entry.get('title', 'Onbekend nummer')
         raise Exception("Geen bruikbare, onbeveiligde stream gevonden.")
@@ -78,16 +76,16 @@ async def receive_update(request: Request):
                     })
                     return {"status": "ok"}
                 
-                status_msg_res = await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
                     "text": f"🔍 Zoeken naar **{query}**..."
                 })
                 
                 try:
-                    # Haal direct de stream URL op van YouTube via een achtergrond-thread
-                    audio_url, title = await asyncio.to_thread(get_audio_url, query)
+                    # Direct aanroepen zonder ingewikkelde threads
+                    audio_url, title = get_audio_url(query)
                     
-                    # Bel in bij de Voice Chat van deze groep!
+                    # Verbind met de Voice Chat
                     await call_py.play(
                         chat_id,
                         MediaStream(audio_url)
