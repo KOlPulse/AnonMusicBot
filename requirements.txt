@@ -2,7 +2,7 @@ fastapi
 uvicorn
 httpx
 python-dotenv
-yt-dlp
-pyrogram
-pytgcalls
-ntgcalls
+yt-dlp==2024.3.10
+pyrogram==2.0.106
+pytgcalls==1.1.1
+ntgcalls==1.1.1
