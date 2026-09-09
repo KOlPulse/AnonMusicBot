@@ -56,19 +56,20 @@ async def receive_update(request: Request):
                 })
                 
                 try:
-                    # Gebruik de Muziek API voor DRM-vrije, volledige nummers
-                    search_url = f"https://saavn.dev/api/search/songs?query={query}"
+                    # Nieuwe, werkende Muziek API server (saavn.me)
+                    search_url = f"https://saavn.me/search/songs?query={query}"
                     res = await client.get(search_url)
                     api_data = res.json()
                     
-                    if api_data.get("success") and api_data.get("data", {}).get("results"):
+                    # saavn.me gebruikt 'status': 'SUCCESS'
+                    if api_data.get("status") == "SUCCESS" and api_data.get("data", {}).get("results"):
                         song = api_data["data"]["results"][0]
                         title = song.get("name", query).replace("&quot;", '"').replace("&amp;", "&")
                         artists = song.get("primaryArtists", "Unknown Artist")
                         download_urls = song.get("downloadUrl", [])
                         
                         if download_urls:
-                            # Pak de hoogste audiokwaliteit uit de lijst
+                            # Pak de hoogste audiokwaliteit
                             best_audio_url = download_urls[-1]["url"]
                             
                             await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
@@ -76,7 +77,6 @@ async def receive_update(request: Request):
                                 "text": f"✅ Found it! Downloading full track: {title}... (Give me a few seconds)"
                             })
                             
-                            # Download audio lokaal
                             audio_res = await client.get(best_audio_url, follow_redirects=True)
                             os.makedirs("downloads", exist_ok=True)
                             file_path = f"downloads/{chat_id}_full.m4a"
@@ -84,7 +84,6 @@ async def receive_update(request: Request):
                             with open(file_path, "wb") as f:
                                 f.write(audio_res.content)
                                 
-                            # Stuur het bestand als echte muziekspeler naar Telegram
                             with open(file_path, "rb") as audio_file:
                                 files = {"audio": audio_file}
                                 data_payload = {
@@ -100,7 +99,6 @@ async def receive_update(request: Request):
                                     timeout=120.0
                                 )
                                 
-                            # Ruim de server weer netjes op
                             if os.path.exists(file_path):
                                 os.remove(file_path)
                         else:
@@ -115,12 +113,10 @@ async def receive_update(request: Request):
                         })
                         
                 except Exception as e:
-                    import traceback
-                    fout_melding = traceback.format_exc()
-                    print(f"❌ ERROR: {fout_melding}")
+                    print(f"❌ ERROR: {e}")
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"❌ An error occurred: {str(e)[:100]}"
+                        "text": f"❌ The music server is temporarily unreachable. Try again in a minute!"
                     })
                     
     return {"status": "ok"}
