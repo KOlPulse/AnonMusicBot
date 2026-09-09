@@ -1,150 +1,83 @@
 import os
-import httpx
+import asyncio
+from pyrogram import Client, filters
+from pytgcalls import PyTgCalls
+from pytgcalls.types import AudioPiped
 import yt_dlp
-from dotenv import load_dotenv
-from fastapi import FastAPI, Request
 
-load_dotenv()
-
+# Vaste API gegevens en bot token uit de omgeving of direct ingevuld
+API_ID = 38561709
+API_HASH = "45cb3c0d9a016faa268a269245e6fe4e"
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-WEBHOOK_URL = "https://anonmusicbot-b73b.onrender.com/webhook"
 
-# Vul hier straks jouw eigen Telegram User ID in! (Bijv: [123456789])
-ADMIN_IDS = [] 
+# 1. Start de Pyrogram Userbot/Bot client voor audio streaming
+app = Client(
+    "VibeMusicBot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
-app = FastAPI()
+call_py = PyTgCalls(app)
 
-@app.api_route("/", methods=["GET", "HEAD"])
-def home():
-    return {"status": "Anon Music Bot Webhook is online and ready!"}
+# Helper functie om YouTube audio te downloaden of stream-link op te halen
+def get_audio_url(query: str):
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'noplaylist': True,
+        'quiet': True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"ytsearch:{query}", download=False)
+        if 'entries' in info:
+            info = info['entries'][0]
+        return info['url'], info.get('title', 'Onbekend nummer')
 
-@app.on_event("startup")
-async def startup_event():
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
-    async with httpx.AsyncClient() as client:
-        await client.get(url)
-    print("==== WEBHOOK SERVER IS READY FOR ACTION! ====")
+@app.on_message(filters.command("start"))
+async def start_handler(client, message):
+    await message.reply_text(
+        "👋 Welcome to **AnonMusicBot**!\n\n"
+        "Use `/play [search term]` to stream music directly into the Voice Chat and catch the vibe!"
+    )
 
-@app.post("/webhook")
-async def receive_update(request: Request):
-    data = await request.json()
+@app.on_message(filters.command("play"))
+async def play_handler(client, message):
+    # Controleer of er een zoekterm is meegeleverd
+    if len(message.command) < 2:
+        await message.reply_text("⚠️ Gebruik: `/play [naam van het nummer]`")
+        return
+
+    query = " ".join(message.command[1:])
+    chat_id = message.chat.id
     
-    if "message" in data:
-        message = data["message"]
-        chat_id = message["chat"]["id"]
-        user_id = message["from"]["id"]
-        text = message.get("text", "")
-        
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            if text.startswith("/play"):
-                
-                # --- VIP ADMIN CHECK ---
-                if ADMIN_IDS and user_id not in ADMIN_IDS:
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": "⛔ Access Denied: This bot is reserved for administrators."
-                    })
-                    return {"status": "ok"}
+    status_msg = await message.reply_text(f"🔍 Zoeken naar **{query}**...")
 
-                query = text.replace("/play", "").strip()
-                if not query:
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": "⚠️ Usage: /play [artist or title]"
-                    })
-                    return {"status": "ok"}
-                
-                await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": f"🔍 Smart searching SoundCloud for: '{query}'..."
-                })
-                
-                try:
-                    ydl_opts = {
-                        'format': 'bestaudio/best',
-                        'outtmpl': 'downloads/%(id)s.%(ext)s',
-                        'noplaylist': True,
-                        'max_filesize': 50000000,
-                        'quiet': True,
-                        'no_warnings': True,
-                        'ignoreerrors': True, # Skipt DRM-errors automatisch
-                    }
-                    
-                    os.makedirs("downloads", exist_ok=True)
-                    file_path = None
-                    title = None
-                    author = None
-                    
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(f"scsearch5:{query}", download=False)
-                        
-                        if not info or 'entries' not in info:
-                            await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                                "chat_id": chat_id,
-                                "text": f"❌ Could not find any tracks for '{query}'."
-                            })
-                            return {"status": "ok"}
-                            
-                        for entry in info['entries']:
-                            if entry is None:
-                                continue
-                                
-                            # Forceer de echte naam vanuit de zoekopdracht
-                            current_title = entry.get('title', query)
-                            current_author = entry.get('uploader', 'Unknown Artist')
-                                
-                            try:
-                                dl_info = ydl.extract_info(entry['url'], download=True)
-                                if not dl_info:
-                                    continue
-                                    
-                                file_path = ydl.prepare_filename(dl_info)
-                                title = current_title
-                                author = current_author
-                                break # Gevonden!
-                            except Exception as inner_e:
-                                print(f"Skipping track due to inner error: {inner_e}")
-                                continue
-                                
-                    if not file_path or not os.path.exists(file_path):
-                        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                            "chat_id": chat_id,
-                            "text": f"❌ Found tracks, but all were DRM protected or unavailable."
-                        })
-                        return {"status": "ok"}
-                        
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": f"✅ Found track! Uploading {title}..."
-                    })
-                    
-                    # --- DE FIX VOOR DE NAAM EN DE 00:00 TIJD ---
-                    with open(file_path, "rb") as audio_file:
-                        # Door het bestand als een specifieke .mp3 string mee te geven, dwingen we 
-                        # Telegram om de 00:00 fout te negeren en de metadata perfect te lezen!
-                        files = {"audio": (f"{title} - {author}.mp3", audio_file, "audio/mpeg")}
-                        data_payload = {
-                            "chat_id": chat_id,
-                            "title": title,
-                            "performer": author,
-                            "caption": f"🎵 {title} - {author}"
-                        }
-                        
-                        await client.post(
-                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
-                            data=data_payload,
-                            files=files,
-                            timeout=120.0
-                        )
-                        
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                        
-                except Exception as e:
-                    error_msg = str(e)
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": f"❌ TECHNISCHE FOUT: {error_msg}"
-                    })
-                    
-    return {"status": "ok"}
+    try:
+        # Zoek het nummer via yt-dlp
+        audio_url, title = await asyncio.to_thread(get_audio_url, query)
+        
+        await status_msg.edit_text(f"🎵 Verbinden met de Voice Chat voor: **{title}**...")
+
+        # Start de stream in de Voice Chat van de groep
+        await call_py.join_group_call(
+            chat_id,
+            AudioPiped(audio_url)
+        )
+        
+        await status_msg.edit_text(f"🎶 Nu live te horen in de Voice Chat: **{title}**!")
+
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Er is een fout opgetreden: {str(e)}")
+
+# Start de applicatie
+async def main():
+    await app.start()
+    await call_py.start()
+    print("Bot en Voice Chat DJ draaien succesvol!")
+    await asyncio.gather(
+        app.idle(),
+        call_py.idle()
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
