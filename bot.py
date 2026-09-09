@@ -82,6 +82,37 @@ async def receive_update(request: Request):
                 })
                 
                 try:
+                    audio_url, title = get_audio_url(query)
+                    
+                    # Forceer de juiste event loop voor py-tgcalls
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None, 
+                        lambda: asyncio.run_coroutine_threadsafe(
+                            call_py.play(chat_id, MediaStream(audio_url)), 
+                            call_py.loop
+                        ).result()
+                    )
+                    
+                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": f"🎶 Nu live te horen in de Voice Chat: **{title}**!"
+                    })
+
+                except Exception as e:
+                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": f"❌ Fout bij opstarten in Voice Chat: {str(e)}"
+                    })
+                    
+    return {"status": "ok"}
+                
+                await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": f"🔍 Zoeken naar **{query}**..."
+                })
+                
+                try:
                     # Direct aanroepen zonder ingewikkelde threads
                     audio_url, title = get_audio_url(query)
                     
