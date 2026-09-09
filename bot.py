@@ -52,87 +52,108 @@ async def receive_update(request: Request):
                 
                 await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": f"🔍 Searching securely across the network for: '{query}'..."
+                    "text": f"🔍 Searching securely for: '{query}'..."
                 })
                 
                 try:
-                    # Lijst met betrouwbare Invidious servers om blokkades en offline servers te omzeilen
-                    invidious_instances = [
-                        "https://yewtu.be",
-                        "https://vid.puffyan.us",
-                        "https://invidious.flokinet.to",
-                        "https://inv.tux.pizza"
-                    ]
+                    # STAP 1: Zoeken via Invidious (Dit werkt perfect zoals we zagen)
+                    invidious_instances = ["https://yewtu.be", "https://vid.puffyan.us", "https://invidious.flokinet.to"]
+                    video_id, title, author = None, None, None
                     
-                    video = None
-                    working_instance = None
-                    
-                    # Probeer de servers één voor één totdat er eentje werkt
                     for instance in invidious_instances:
                         try:
                             search_url = f"{instance}/api/v1/search?q={query}"
                             res = await client.get(search_url, timeout=10.0)
                             if res.status_code == 200:
                                 api_data = res.json()
-                                # Zoek de eerste echte video in de resultaten
                                 video = next((v for v in api_data if v.get("type") == "video"), None)
                                 if video:
-                                    working_instance = instance
-                                    break # We hebben een werkende server gevonden, stop met zoeken!
+                                    video_id = video["videoId"]
+                                    title = video["title"]
+                                    author = video["author"]
+                                    break
                         except Exception:
-                            continue # Als deze server stuk is, probeer direct de volgende
+                            continue
                             
-                    if video and working_instance:
-                        video_id = video["videoId"]
-                        title = video["title"]
-                        author = video["author"]
-                        
-                        # Directe, proxy-omgeleide audio download (itag 140 = zuivere m4a audio)
-                        best_audio_url = f"{working_instance}/latest_version?id={video_id}&itag=140"
-                        
+                    if not video_id:
                         await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": chat_id,
-                            "text": f"✅ Connected to {working_instance}! Downloading full track: {title}..."
+                            "text": f"❌ Could not find '{query}'."
                         })
+                        return {"status": "ok"}
                         
-                        # Download audio lokaal
-                        audio_res = await client.get(best_audio_url, follow_redirects=True, timeout=120.0)
-                        os.makedirs("downloads", exist_ok=True)
-                        file_path = f"downloads/{chat_id}_full.m4a"
-                        
-                        with open(file_path, "wb") as f:
-                            f.write(audio_res.content)
-                            
-                        # Stuur als echte muziekspeler naar Telegram
-                        with open(file_path, "rb") as audio_file:
-                            files = {"audio": audio_file}
-                            data_payload = {
-                                "chat_id": chat_id,
-                                "title": title,
-                                "performer": author,
-                                "caption": f"🎵 {title} - {author}"
-                            }
-                            await client.post(
-                                f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
-                                data=data_payload,
-                                files=files,
-                                timeout=120.0
-                            )
-                            
-                        # Ruim de server weer netjes op
-                        if os.path.exists(file_path):
-                            os.remove(file_path)
-                    else:
+                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": f"✅ Found: {title}\n⬇️ Downloading high quality audio via Cobalt API..."
+                    })
+                    
+                    # STAP 2: Ophalen via de Cobalt API (Bypass voor de lege 00:00 bestanden)
+                    cobalt_url = "https://api.cobalt.tools/api/json"
+                    cobalt_headers = {
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }
+                    cobalt_payload = {
+                        "url": f"https://www.youtube.com/watch?v={video_id}",
+                        "aFormat": "mp3",
+                        "isAudioOnly": True
+                    }
+                    
+                    cobalt_res = await client.post(cobalt_url, json=cobalt_payload, headers=cobalt_headers, timeout=30.0)
+                    cobalt_data = cobalt_res.json()
+                    
+                    audio_url = cobalt_data.get("url")
+                    
+                    if not audio_url:
                         await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": chat_id,
-                            "text": f"❌ Could not find '{query}' or all servers are currently busy."
+                            "text": f"❌ The download server is currently busy. Try again!"
                         })
+                        return {"status": "ok"}
+                        
+                    # STAP 3: Audio lokaal opslaan
+                    audio_res = await client.get(audio_url, follow_redirects=True, timeout=120.0)
+                    
+                    # VEILIGHEIDSCHECK: Is het bestand groter dan 100KB? Zo niet, dan is het een nepbestand (00:00)
+                    if len(audio_res.content) < 100000:
+                        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                            "chat_id": chat_id,
+                            "text": f"❌ YouTube blocked the stream (File is empty). Please try another song."
+                        })
+                        return {"status": "ok"}
+                        
+                    os.makedirs("downloads", exist_ok=True)
+                    file_path = f"downloads/{chat_id}_full.mp3"
+                    
+                    with open(file_path, "wb") as f:
+                        f.write(audio_res.content)
+                        
+                    # STAP 4: Echte muziekspeler naar Telegram sturen
+                    with open(file_path, "rb") as audio_file:
+                        files = {"audio": audio_file}
+                        data_payload = {
+                            "chat_id": chat_id,
+                            "title": title,
+                            "performer": author,
+                            "caption": f"🎵 {title} - {author}"
+                        }
+                        await client.post(
+                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio",
+                            data=data_payload,
+                            files=files,
+                            timeout=120.0
+                        )
+                        
+                    # Opruimen
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
                         
                 except Exception as e:
                     print(f"❌ ERROR: {e}")
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"❌ An unexpected error occurred. Try again!"
+                        "text": f"❌ An unexpected error occurred while downloading."
                     })
                     
     return {"status": "ok"}
