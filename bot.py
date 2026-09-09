@@ -8,6 +8,10 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 WEBHOOK_URL = "https://anonmusicbot-b73b.onrender.com/webhook"
 
+# 1. Vul hier straks jouw eigen Telegram User ID in! (Bijv: [123456789, 987654321])
+# Laat de lijst leeg [] om iedereen tijdelijk toegang te geven.
+ADMIN_IDS = [] 
+
 app = FastAPI()
 
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -16,11 +20,9 @@ def home():
 
 @app.on_event("startup")
 async def startup_event():
-    print("==== Setting up Telegram Webhook... ====")
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
     async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-        print(f"Webhook registration response: {response.text}")
+        await client.get(url)
     print("==== WEBHOOK SERVER IS READY FOR ACTION! ====")
 
 @app.post("/webhook")
@@ -30,119 +32,90 @@ async def receive_update(request: Request):
     if "message" in data:
         message = data["message"]
         chat_id = message["chat"]["id"]
+        user_id = message["from"]["id"]
         text = message.get("text", "")
         user_name = message["from"].get("first_name", "Friend")
         
         async with httpx.AsyncClient(timeout=120.0) as client:
-            if text.startswith("/start"):
-                reply_text = f"🤖 Vibe on, {user_name}! Type **/play [song name]** to listen to full tracks!"
-                await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": reply_text
-                })
+            if text.startswith("/play"):
                 
-            elif text.startswith("/play"):
+                # --- VIP ADMIN CHECK ---
+                if ADMIN_IDS and user_id not in ADMIN_IDS:
+                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": "⛔ Access Denied: This bot is reserved for administrators."
+                    })
+                    return {"status": "ok"}
+
                 query = text.replace("/play", "").strip()
                 if not query:
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": "⚠️ Usage: /play [artist or title], for example: /play Armin van Buuren"
+                        "text": "⚠️ Usage: /play [artist or title]"
                     })
                     return {"status": "ok"}
                 
                 await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": f"🔍 Searching securely for: '{query}'..."
+                    "text": f"🔍 Searching music database for: '{query}'..."
                 })
                 
                 try:
-                    # STAP 1: Zoeken via Invidious netwerk
-                    invidious_instances = ["https://yewtu.be", "https://vid.puffyan.us", "https://invidious.flokinet.to"]
-                    video_id, title, author = None, None, None
+                    # --- VERCEL API MIRRORS (Geen IP Blokkades) ---
+                    mirrors = [
+                        "https://jiosaavn-api-privatecvc2.vercel.app",
+                        "https://saavn-api-v3.vercel.app",
+                        "https://jiosaavn-api-ten-eta.vercel.app"
+                    ]
                     
-                    for instance in invidious_instances:
+                    best_audio_url, title, author = None, None, None
+                    
+                    for mirror in mirrors:
                         try:
-                            search_url = f"{instance}/api/v1/search?q={query}"
-                            res = await client.get(search_url, timeout=10.0)
+                            res = await client.get(f"{mirror}/search/songs?query={query}", timeout=10.0)
                             if res.status_code == 200:
                                 api_data = res.json()
-                                video = next((v for v in api_data if v.get("type") == "video"), None)
-                                if video:
-                                    video_id = video["videoId"]
-                                    title = video["title"]
-                                    author = video["author"]
-                                    break
+                                results = []
+                                
+                                # Check beide veelvoorkomende JSON architecturen van deze API
+                                if isinstance(api_data, dict) and "data" in api_data:
+                                    if isinstance(api_data["data"], dict) and "results" in api_data["data"]:
+                                        results = api_data["data"]["results"]
+                                    elif isinstance(api_data["data"], list):
+                                        results = api_data["data"]
+                                        
+                                if results:
+                                    song = results[0]
+                                    title = song.get("name", query).replace("&quot;", '"')
+                                    author = song.get("primaryArtists", "Unknown Artist")
+                                    downloads = song.get("downloadUrl", [])
+                                    
+                                    if downloads:
+                                        best_audio_url = downloads[-1]["url"]
+                                        break # Gevonden! Stop met zoeken.
                         except Exception:
                             continue
                             
-                    if not video_id:
+                    if not best_audio_url:
                         await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": chat_id,
-                            "text": f"❌ Could not find '{query}'."
+                            "text": f"❌ Could not find '{query}' in the database."
                         })
                         return {"status": "ok"}
                         
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"✅ Found: {title}\n⬇️ Requesting download from backup servers..."
+                        "text": f"✅ Found: {title}! Downloading full track..."
                     })
                     
-                    # STAP 2: Ophalen via Cobalt API met een heel netwerk aan backup-servers
-                    cobalt_instances = [
-                        "https://co.wuk.sh/api/json",
-                        "https://api.cobalt.tools/api/json",
-                        "https://cobalt.qoid.us/api/json",
-                        "https://cobalt.api.zillyhuhn.com/api/json"
-                    ]
-                    
-                    audio_url = None
-                    
-                    for cobalt_url in cobalt_instances:
-                        try:
-                            cobalt_headers = {
-                                "Accept": "application/json",
-                                "Content-Type": "application/json",
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                            }
-                            cobalt_payload = {
-                                "url": f"https://www.youtube.com/watch?v={video_id}",
-                                "aFormat": "mp3",
-                                "isAudioOnly": True
-                            }
-                            
-                            cobalt_res = await client.post(cobalt_url, json=cobalt_payload, headers=cobalt_headers, timeout=15.0)
-                            if cobalt_res.status_code == 200:
-                                cobalt_data = cobalt_res.json()
-                                if "url" in cobalt_data:
-                                    audio_url = cobalt_data["url"]
-                                    break # We hebben een werkende link! Stop met zoeken.
-                        except Exception:
-                            continue # Server reageert niet of weigert, ga direct naar de volgende!
-                    
-                    if not audio_url:
-                        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                            "chat_id": chat_id,
-                            "text": f"❌ All download servers are currently busy. Try again in a minute!"
-                        })
-                        return {"status": "ok"}
-                        
-                    # STAP 3: Audio lokaal opslaan
-                    audio_res = await client.get(audio_url, follow_redirects=True, timeout=120.0)
-                    
-                    if len(audio_res.content) < 100000:
-                        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                            "chat_id": chat_id,
-                            "text": f"❌ Stream blocked (File is empty). Please try another song."
-                        })
-                        return {"status": "ok"}
-                        
+                    # --- DOWNLOAD & STUUR NAAR TELEGRAM ---
+                    audio_res = await client.get(best_audio_url, follow_redirects=True, timeout=120.0)
                     os.makedirs("downloads", exist_ok=True)
-                    file_path = f"downloads/{chat_id}_full.mp3"
+                    file_path = f"downloads/{chat_id}_full.m4a"
                     
                     with open(file_path, "wb") as f:
                         f.write(audio_res.content)
                         
-                    # STAP 4: Echte muziekspeler naar Telegram sturen
                     with open(file_path, "rb") as audio_file:
                         files = {"audio": audio_file}
                         data_payload = {
@@ -158,7 +131,6 @@ async def receive_update(request: Request):
                             timeout=120.0
                         )
                         
-                    # Opruimen
                     if os.path.exists(file_path):
                         os.remove(file_path)
                         
@@ -166,7 +138,7 @@ async def receive_update(request: Request):
                     print(f"❌ ERROR: {e}")
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"❌ An unexpected error occurred while downloading."
+                        "text": f"❌ An error occurred while downloading."
                     })
                     
     return {"status": "ok"}
