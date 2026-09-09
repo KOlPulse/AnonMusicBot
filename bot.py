@@ -29,7 +29,10 @@ call_py = PyTgCalls(bot_client)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start de bot en voice chat client direct op de juiste loop
+    # Verwijder de oude webhook bij Telegram zodat de bot weer normaal kan luisteren
+    async with httpx.AsyncClient() as client:
+        await client.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
+        
     await bot_client.start()
     await call_py.start()
     print("==== PYROGRAM BOT & VOICE DJ IS READY! ====")
