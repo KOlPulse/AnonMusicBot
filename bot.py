@@ -2,7 +2,7 @@ import os
 import asyncio
 from pyrogram import Client, filters
 from pytgcalls import PyTgCalls
-from pytgcalls.types.input_stream import AudioPiped
+from pytgcalls.types import AudioPiped
 import yt_dlp
 
 # Vaste API gegevens en bot token uit de omgeving of direct ingevuld
