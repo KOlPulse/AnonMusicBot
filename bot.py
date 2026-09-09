@@ -1,10 +1,10 @@
 import os
 import asyncio
-import httpx
 import yt_dlp
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
-from pyrogram import Client
+from fastapi import FastAPI
+from pyrogram import Client, filters
+from pyrogram.types import Message
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
 
@@ -13,23 +13,12 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 API_ID = 38561709
 API_HASH = "45cb3c0d9a016faa268a269245e6fe4e"
-WEBHOOK_URL = "https://anonmusicbot-b73b.onrender.com/webhook"
 
 from contextlib import asynccontextmanager
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await bot_client.start()
-    await call_py.start()
-    
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
-    async with httpx.AsyncClient() as client:
-        await client.get(url)
-    print("==== WEBHOOK & VOICE DJ IS READY! ====")
-    yield
+app = FastAPI()
 
-app = FastAPI(lifespan=lifespan)
-
+# Pyrogram Client en PyTgCalls op dezelfde event-loop
 bot_client = Client(
     "VibeMusicBot",
     api_id=API_ID,
@@ -38,68 +27,63 @@ bot_client = Client(
 )
 call_py = PyTgCalls(bot_client)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start de bot en voice chat client direct op de juiste loop
+    await bot_client.start()
+    await call_py.start()
+    print("==== PYROGRAM BOT & VOICE DJ IS READY! ====")
+    yield
+    await bot_client.stop()
+
+app.router.lifespan_context = lifespan
+
 @app.api_route("/", methods=["GET", "HEAD"])
 def home():
-    return {"status": "Anon Music Bot Voice Chat Webhook is online!"}
+    return {"status": "Anon Music Bot Voice Chat is online!"}
 
-def get_audio_url(query: str):
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'noplaylist': True,
-        'quiet': True,
-        'ignoreerrors': True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"scsearch5:{query}", download=False)
-        if 'entries' in info:
-            for entry in info['entries']:
-                if entry is not None and 'url' in entry:
-                    if entry.get('url'):
-                        return entry['url'], entry.get('title', 'Onbekend nummer')
-        raise Exception("Geen bruikbare, onbeveiligde stream gevonden.")
-
-@app.post("/webhook")
-async def receive_update(request: Request):
-    data = await request.json()
+# --- NATIVE PYROGRAM COMMANDO HANDLER (Geen webhook lus-conflicten meer!) ---
+@bot_client.on_message(filters.command("play"))
+async def play_command(client, message: Message):
+    chat_id = message.chat.id
+    query = message.text.replace("/play", "").strip()
     
-    if "message" in data:
-        message = data["message"]
-        chat_id = message["chat"]["id"]
-        text = message.get("text", "")
+    if not query:
+        await message.reply("⚠️ Gebruik: `/play [naam van het nummer]`")
+        return
+    
+    status_msg = await message.reply(f"🔍 Zoeken naar **{query}**...")
+    
+    try:
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'noplaylist': True,
+            'quiet': True,
+            'ignoreerrors': True,
+        }
+        audio_url = None
+        title = "Onbekend nummer"
         
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            if text.startswith("/play"):
-                query = text.replace("/play", "").strip()
-                
-                if not query:
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": "⚠️ Gebruik: `/play [naam van het nummer]`"
-                    })
-                    return {"status": "ok"}
-                
-                await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": f"🔍 Zoeken naar **{query}**..."
-                })
-                
-                try:
-                    audio_url, title = get_audio_url(query)
-                    
-                    await call_py.play(
-                        chat_id,
-                        MediaStream(audio_url)
-                    )
-                    
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": f"🎶 Nu live te horen in de Voice Chat: **{title}**!"
-                    })
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"scsearch5:{query}", download=False)
+            if 'entries' in info:
+                for entry in info['entries']:
+                    if entry is not None and entry.get('url'):
+                        audio_url = entry['url']
+                        title = entry.get('title', 'Onbekend nummer')
+                        break
+                        
+        if not audio_url:
+            await status_msg.edit_text("❌ Geen bruikbare, onbeveiligde stream gevonden.")
+            return
+        
+        # Start direct in de Voice Chat op dezelfde event loop!
+        await call_py.play(
+            chat_id,
+            MediaStream(audio_url)
+        )
+        
+        await status_msg.edit_text(f"🎶 Nu live te horen in de Voice Chat: **{title}**!")
 
-                except Exception as e:
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": f"❌ Fout bij opstarten in Voice Chat: {str(e)}"
-                    })
-                    
-    return {"status": "ok"}
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Fout bij opstarten in Voice Chat: {str(e)}")
