@@ -19,7 +19,6 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup acties
     await bot_client.start()
     await call_py.start()
     
@@ -28,7 +27,6 @@ async def lifespan(app: FastAPI):
         await client.get(url)
     print("==== WEBHOOK & VOICE DJ IS READY! ====")
     yield
-    # Shutdown acties (optioneel)
 
 app = FastAPI(lifespan=lifespan)
 
@@ -39,6 +37,10 @@ bot_client = Client(
     bot_token=BOT_TOKEN
 )
 call_py = PyTgCalls(bot_client)
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def home():
+    return {"status": "Anon Music Bot Voice Chat Webhook is online!"}
 
 def get_audio_url(query: str):
     ydl_opts = {
@@ -84,39 +86,6 @@ async def receive_update(request: Request):
                 try:
                     audio_url, title = get_audio_url(query)
                     
-                    # Forceer de juiste event loop voor py-tgcalls
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(
-                        None, 
-                        lambda: asyncio.run_coroutine_threadsafe(
-                            call_py.play(chat_id, MediaStream(audio_url)), 
-                            call_py.loop
-                        ).result()
-                    )
-                    
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": f"🎶 Nu live te horen in de Voice Chat: **{title}**!"
-                    })
-
-                except Exception as e:
-                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": f"❌ Fout bij opstarten in Voice Chat: {str(e)}"
-                    })
-                    
-    return {"status": "ok"}
-                
-                await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": f"🔍 Zoeken naar **{query}**..."
-                })
-                
-                try:
-                    # Direct aanroepen zonder ingewikkelde threads
-                    audio_url, title = get_audio_url(query)
-                    
-                    # Verbind met de Voice Chat
                     await call_py.play(
                         chat_id,
                         MediaStream(audio_url)
