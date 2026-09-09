@@ -90,7 +90,7 @@ async def main():
     await app.start()
     await call_py.start()
     print("Telegram Bot en Voice Chat DJ draaien nu vlekkeloos!")
-    await idle()  # DIT IS DE CRUCIALE FIX!
+    await idle()  # DIT IS DE FIX! Geen 'app.idle()' meer!
 
 if __name__ == "__main__":
     asyncio.run(main())
