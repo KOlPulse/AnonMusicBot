@@ -76,7 +76,7 @@ async def main():
     print("==== PYROGRAM BOT & VOICE DJ IS READY! ====")
     await pyrogram.idle()
     
-    await call_py.stop()
+    # Alleen de client netjes stoppen
     await bot_client.stop()
 
 if __name__ == "__main__":
