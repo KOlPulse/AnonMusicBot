@@ -61,13 +61,14 @@ async def receive_update(request: Request):
                 
                 try:
                     ydl_opts = {
-                        'format': 'bestaudio/best',
+                        # Forceer m4a of mp3 zodat Telegram de audiospeler (en tijdsduur) perfect laadt!
+                        'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio',
                         'outtmpl': 'downloads/%(id)s.%(ext)s',
                         'noplaylist': True,
                         'max_filesize': 50000000,
                         'quiet': True,
                         'no_warnings': True,
-                        'ignoreerrors': True, # HIER IS DE MAGIE: Crasht niet meer bij DRM!
+                        'ignoreerrors': True,
                     }
                     
                     os.makedirs("downloads", exist_ok=True)
@@ -88,9 +89,12 @@ async def receive_update(request: Request):
                             
                         # Loop door de 5 resultaten
                         for entry in info['entries']:
-                            # Door ignoreerrors=True worden DRM-nummers vaak als 'None' in de lijst gezet. Die slaan we over.
                             if entry is None:
                                 continue
+                                
+                            # We pakken de titel NU al, direct uit de zoekmachine, niet uit de download.
+                            current_title = entry.get('title', query)
+                            current_author = entry.get('uploader', 'Unknown Artist')
                                 
                             try:
                                 dl_info = ydl.extract_info(entry['url'], download=True)
@@ -98,8 +102,8 @@ async def receive_update(request: Request):
                                     continue
                                     
                                 file_path = ydl.prepare_filename(dl_info)
-                                title = dl_info.get('title', query)
-                                author = dl_info.get('uploader', 'Unknown Artist')
+                                title = current_title
+                                author = current_author
                                 break # We hebben een werkend nummer!
                             except Exception as inner_e:
                                 print(f"Skipping track due to inner error: {inner_e}")
