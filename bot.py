@@ -1,4 +1,5 @@
 import os
+import asyncio
 import yt_dlp
 from dotenv import load_dotenv
 from pyrogram import Client, filters
@@ -75,7 +76,6 @@ async def main():
     print("==== PYROGRAM BOT & VOICE DJ IS READY! ====")
     await pyrogram.idle()
     
-    # Zorg dat alles netjes stopt bij afsluiten
     await call_py.stop()
     await bot_client.stop()
 
