@@ -1,5 +1,6 @@
 import os
 import asyncio
+import httpx
 import yt_dlp
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -45,7 +46,7 @@ app.router.lifespan_context = lifespan
 def home():
     return {"status": "Anon Music Bot Voice Chat is online!"}
 
-# --- NATIVE PYROGRAM COMMANDO HANDLER (Geen webhook lus-conflicten meer!) ---
+# --- NATIVE PYROGRAM COMMANDO HANDLER ---
 @bot_client.on_message(filters.command("play"))
 async def play_command(client, message: Message):
     chat_id = message.chat.id
