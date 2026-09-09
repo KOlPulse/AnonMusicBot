@@ -15,9 +15,23 @@ API_ID = 38561709
 API_HASH = "45cb3c0d9a016faa268a269245e6fe4e"
 WEBHOOK_URL = "https://anonmusicbot-b73b.onrender.com/webhook"
 
-app = FastAPI()
+from contextlib import asynccontextmanager
 
-# Start de Pyrogram Client en PyTgCalls in de achtergrond
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup acties
+    await bot_client.start()
+    await call_py.start()
+    
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
+    async with httpx.AsyncClient() as client:
+        await client.get(url)
+    print("==== WEBHOOK & VOICE DJ IS READY! ====")
+    yield
+    # Shutdown acties (optioneel)
+
+app = FastAPI(lifespan=lifespan)
+
 bot_client = Client(
     "VibeMusicBot",
     api_id=API_ID,
@@ -25,22 +39,6 @@ bot_client = Client(
     bot_token=BOT_TOKEN
 )
 call_py = PyTgCalls(bot_client)
-
-@app.api_route("/", methods=["GET", "HEAD"])
-def home():
-    return {"status": "Anon Music Bot Voice Chat Webhook is online!"}
-
-@app.on_event("startup")
-async def startup_event():
-    # Start de Telegram bot en voice calls client
-    await bot_client.start()
-    await call_py.start()
-    
-    # Registreer de webhook bij Telegram (net als bij je oude werkende bot!)
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
-    async with httpx.AsyncClient() as client:
-        await client.get(url)
-    print("==== WEBHOOK & VOICE DJ IS READY! ====")
 
 def get_audio_url(query: str):
     ydl_opts = {
