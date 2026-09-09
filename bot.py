@@ -83,13 +83,14 @@ async def receive_update(request: Request):
                     "text": f"🔍 Zoeken naar **{query}**..."
                 })
                 
-                try:
+               try:
                     audio_url, title = get_audio_url(query)
                     
-                    def run_in_loop():
-                        asyncio.run(call_py.play(chat_id, MediaStream(audio_url)))
-
-                    await asyncio.to_thread(run_in_loop)
+                    # Direct aanroepen op de actieve event loop van de webhook
+                    await call_py.play(
+                        chat_id,
+                        MediaStream(audio_url)
+                    )
                     
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
