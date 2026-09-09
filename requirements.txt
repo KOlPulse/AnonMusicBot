@@ -3,5 +3,5 @@ uvicorn
 httpx
 python-dotenv
 yt-dlp
-pyrogram
-py-tgcalls
+pyrogram==2.0.106
+py-tgcalls==2.1.0
