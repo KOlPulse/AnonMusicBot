@@ -56,7 +56,7 @@ async def receive_update(request: Request):
                 })
                 
                 try:
-                    # STAP 1: Zoeken via Invidious (Dit werkt perfect zoals we zagen)
+                    # STAP 1: Zoeken via Invidious netwerk
                     invidious_instances = ["https://yewtu.be", "https://vid.puffyan.us", "https://invidious.flokinet.to"]
                     video_id, title, author = None, None, None
                     
@@ -84,42 +84,55 @@ async def receive_update(request: Request):
                         
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"✅ Found: {title}\n⬇️ Downloading high quality audio via Cobalt API..."
+                        "text": f"✅ Found: {title}\n⬇️ Requesting download from backup servers..."
                     })
                     
-                    # STAP 2: Ophalen via de Cobalt API (Bypass voor de lege 00:00 bestanden)
-                    cobalt_url = "https://api.cobalt.tools/api/json"
-                    cobalt_headers = {
-                        "Accept": "application/json",
-                        "Content-Type": "application/json",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    }
-                    cobalt_payload = {
-                        "url": f"https://www.youtube.com/watch?v={video_id}",
-                        "aFormat": "mp3",
-                        "isAudioOnly": True
-                    }
+                    # STAP 2: Ophalen via Cobalt API met een heel netwerk aan backup-servers
+                    cobalt_instances = [
+                        "https://co.wuk.sh/api/json",
+                        "https://api.cobalt.tools/api/json",
+                        "https://cobalt.qoid.us/api/json",
+                        "https://cobalt.api.zillyhuhn.com/api/json"
+                    ]
                     
-                    cobalt_res = await client.post(cobalt_url, json=cobalt_payload, headers=cobalt_headers, timeout=30.0)
-                    cobalt_data = cobalt_res.json()
+                    audio_url = None
                     
-                    audio_url = cobalt_data.get("url")
+                    for cobalt_url in cobalt_instances:
+                        try:
+                            cobalt_headers = {
+                                "Accept": "application/json",
+                                "Content-Type": "application/json",
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                            }
+                            cobalt_payload = {
+                                "url": f"https://www.youtube.com/watch?v={video_id}",
+                                "aFormat": "mp3",
+                                "isAudioOnly": True
+                            }
+                            
+                            cobalt_res = await client.post(cobalt_url, json=cobalt_payload, headers=cobalt_headers, timeout=15.0)
+                            if cobalt_res.status_code == 200:
+                                cobalt_data = cobalt_res.json()
+                                if "url" in cobalt_data:
+                                    audio_url = cobalt_data["url"]
+                                    break # We hebben een werkende link! Stop met zoeken.
+                        except Exception:
+                            continue # Server reageert niet of weigert, ga direct naar de volgende!
                     
                     if not audio_url:
                         await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": chat_id,
-                            "text": f"❌ The download server is currently busy. Try again!"
+                            "text": f"❌ All download servers are currently busy. Try again in a minute!"
                         })
                         return {"status": "ok"}
                         
                     # STAP 3: Audio lokaal opslaan
                     audio_res = await client.get(audio_url, follow_redirects=True, timeout=120.0)
                     
-                    # VEILIGHEIDSCHECK: Is het bestand groter dan 100KB? Zo niet, dan is het een nepbestand (00:00)
                     if len(audio_res.content) < 100000:
                         await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                             "chat_id": chat_id,
-                            "text": f"❌ YouTube blocked the stream (File is empty). Please try another song."
+                            "text": f"❌ Stream blocked (File is empty). Please try another song."
                         })
                         return {"status": "ok"}
                         
