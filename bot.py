@@ -34,7 +34,6 @@ async def receive_update(request: Request):
         chat_id = message["chat"]["id"]
         user_id = message["from"]["id"]
         text = message.get("text", "")
-        user_name = message["from"].get("first_name", "Friend")
         
         async with httpx.AsyncClient(timeout=120.0) as client:
             if text.startswith("/play"):
@@ -76,7 +75,7 @@ async def receive_update(request: Request):
                     author = None
                     
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        # Zoek de top 5 resultaten (download nog niets)
+                        # Zoek de top 5 resultaten
                         info = ydl.extract_info(f"scsearch5:{query}", download=False)
                         
                         if not info or 'entries' not in info or not info['entries']:
@@ -86,18 +85,17 @@ async def receive_update(request: Request):
                             })
                             return {"status": "ok"}
                             
-                        # Loop door de 5 resultaten om de DRM beveiliging te omzeilen
+                        # Loop door de 5 resultaten
                         for entry in info['entries']:
                             try:
-                                # Probeer dit specifieke nummer te downloaden
                                 dl_info = ydl.extract_info(entry['url'], download=True)
                                 file_path = ydl.prepare_filename(dl_info)
                                 title = dl_info.get('title', query)
                                 author = dl_info.get('uploader', 'Unknown Artist')
-                                break # Gelukt! Breek direct uit de loop.
-                            except Exception as e:
-                                print(f"Skipping track due to error (likely DRM): {e}")
-                                continue # Error of DRM slot? Geen paniek, we proberen de volgende in de lijst!
+                                break 
+                            except Exception as inner_e:
+                                print(f"Skipping track due to inner error: {inner_e}")
+                                continue
                                 
                     if not file_path or not os.path.exists(file_path):
                         await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
@@ -106,7 +104,7 @@ async def receive_update(request: Request):
                         })
                         return {"status": "ok"}
                         
-                    # Succes! Stuur het bestand als echte audiospeler
+                    # Succes! 
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
                         "text": f"✅ Found an unlocked track! Uploading {title}..."
@@ -127,15 +125,16 @@ async def receive_update(request: Request):
                             timeout=120.0
                         )
                         
-                    # Ruim de server netjes op
+                    # Opruimen
                     if os.path.exists(file_path):
                         os.remove(file_path)
                         
                 except Exception as e:
-                    print(f"❌ ERROR: {e}")
+                    # HIER IS DE WIJZIGING: Stuur de échte technische fout naar Telegram
+                    error_msg = str(e)
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": f"❌ An unexpected error occurred during the search process."
+                        "text": f"❌ TECHNISCHE FOUT: {error_msg}"
                     })
                     
     return {"status": "ok"}
