@@ -3,5 +3,5 @@ uvicorn
 httpx
 python-dotenv
 yt-dlp
-pyrogram-fork
+pyrofork
 py-tgcalls
