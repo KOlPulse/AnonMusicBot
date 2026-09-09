@@ -67,6 +67,7 @@ async def receive_update(request: Request):
                         'max_filesize': 50000000,
                         'quiet': True,
                         'no_warnings': True,
+                        'ignoreerrors': True, # HIER IS DE MAGIE: Crasht niet meer bij DRM!
                     }
                     
                     os.makedirs("downloads", exist_ok=True)
@@ -78,7 +79,7 @@ async def receive_update(request: Request):
                         # Zoek de top 5 resultaten
                         info = ydl.extract_info(f"scsearch5:{query}", download=False)
                         
-                        if not info or 'entries' not in info or not info['entries']:
+                        if not info or 'entries' not in info:
                             await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                                 "chat_id": chat_id,
                                 "text": f"❌ Could not find any tracks for '{query}'."
@@ -87,12 +88,19 @@ async def receive_update(request: Request):
                             
                         # Loop door de 5 resultaten
                         for entry in info['entries']:
+                            # Door ignoreerrors=True worden DRM-nummers vaak als 'None' in de lijst gezet. Die slaan we over.
+                            if entry is None:
+                                continue
+                                
                             try:
                                 dl_info = ydl.extract_info(entry['url'], download=True)
+                                if not dl_info:
+                                    continue
+                                    
                                 file_path = ydl.prepare_filename(dl_info)
                                 title = dl_info.get('title', query)
                                 author = dl_info.get('uploader', 'Unknown Artist')
-                                break 
+                                break # We hebben een werkend nummer!
                             except Exception as inner_e:
                                 print(f"Skipping track due to inner error: {inner_e}")
                                 continue
@@ -130,7 +138,6 @@ async def receive_update(request: Request):
                         os.remove(file_path)
                         
                 except Exception as e:
-                    # HIER IS DE WIJZIGING: Stuur de échte technische fout naar Telegram
                     error_msg = str(e)
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
