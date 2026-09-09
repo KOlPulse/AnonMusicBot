@@ -68,12 +68,17 @@ async def play_command(client, message: Message):
         print(f"FOUT IN VOICE CHAT: {str(e)}")
         await status_msg.edit_text(f"❌ Fout bij opstarten in Voice Chat: {str(e)}")
 
-if __name__ == "__main__":
+async def main():
     print("==== STARTEN PYROGRAM MUSIC BOT (Standalone) ====")
-    # Start zowel de Voice Calls als de Pyrogram client gelijktidirg in één event loop
-    bot_client.start()
-    call_py.start()
+    await bot_client.start()
+    await call_py.start()
+    print("==== PYROGRAM BOT & VOICE DJ IS READY! ====")
+    await pyrogram.idle()
     
-    # Hou de bot draaiende
+    # Zorg dat alles netjes stopt bij afsluiten
+    await call_py.stop()
+    await bot_client.stop()
+
+if __name__ == "__main__":
     import pyrogram
-    pyrogram.idle()
+    asyncio.run(main())
