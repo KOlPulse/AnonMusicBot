@@ -45,13 +45,18 @@ def get_audio_url(query: str):
         'format': 'bestaudio/best',
         'noplaylist': True,
         'quiet': True,
+        'ignoreerrors': True,
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Zoek via SoundCloud in plaats van YouTube
-        info = ydl.extract_info(f"scsearch:{query}", download=False)
+        # Zoek gelijk naar de eerste 5 opties om een vrije track te vinden
+        info = ydl.extract_info(f"scsearch5:{query}", download=False)
         if 'entries' in info:
-            info = info['entries'][0]
-        return info['url'], info.get('title', 'Onbekend nummer')
+            for entry in info['entries']:
+                if entry is not None and 'url' in entry:
+                    # Sla DRM-beveiligde of lege streams over
+                    if entry.get('url'):
+                        return entry['url'], entry.get('title', 'Onbekend nummer')
+        raise Exception("Geen bruikbare, onbeveiligde stream gevonden.")
 
 @app.post("/webhook")
 async def receive_update(request: Request):
