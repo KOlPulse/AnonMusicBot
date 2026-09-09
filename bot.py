@@ -83,13 +83,14 @@ async def receive_update(request: Request):
                     "text": f"🔍 Zoeken naar **{query}**..."
                 })
                 
-                try:
+               try:
                     audio_url, title = get_audio_url(query)
                     
-                    await call_py.play(
-                        chat_id,
-                        MediaStream(audio_url)
-                    )
+                    # Voer de voice call uit in een aparte thread om event-loop botsingen te voorkomen
+                    def run_in_loop():
+                        asyncio.run(call_py.play(chat_id, MediaStream(audio_url)))
+
+                    await asyncio.to_thread(run_in_loop)
                     
                     await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
                         "chat_id": chat_id,
