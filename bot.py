@@ -1,43 +1,47 @@
 import os
 import asyncio
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from pyrogram import Client, filters, idle
-from pyrogram.enums import ChatType
+import httpx
+import yt_dlp
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request
+from pyrogram import Client
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
-import yt_dlp
 
-# 1. Dummy Web Server (Dit houdt Render blij op de achtergrond, gescheiden van de bot!)
-class KeepAliveHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"De Muziek Bot draait succesvol!")
+load_dotenv()
 
-def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), KeepAliveHandler)
-    server.serve_forever()
-
-# Start de server in een aparte "thread" zodat hij de bot niet blokkeert
-threading.Thread(target=run_web_server, daemon=True).start()
-
-# 2. Telegram Bot Instellingen
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 API_ID = 38561709
 API_HASH = "45cb3c0d9a016faa268a269245e6fe4e"
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+WEBHOOK_URL = "https://anonmusicbot-b73b.onrender.com/webhook"
 
-app = Client(
+app = FastAPI()
+
+# Start de Pyrogram Client en PyTgCalls in de achtergrond
+bot_client = Client(
     "VibeMusicBot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
+call_py = PyTgCalls(bot_client)
 
-call_py = PyTgCalls(app)
+@app.api_route("/", methods=["GET", "HEAD"])
+def home():
+    return {"status": "Anon Music Bot Voice Chat Webhook is online!"}
 
-# 3. Helper functie voor YouTube download
+@app.on_event("startup")
+async def startup_event():
+    # Start de Telegram bot en voice calls client
+    await bot_client.start()
+    await call_py.start()
+    
+    # Registreer de webhook bij Telegram (net als bij je oude werkende bot!)
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
+    async with httpx.AsyncClient() as client:
+        await client.get(url)
+    print("==== WEBHOOK & VOICE DJ IS READY! ====")
+
 def get_audio_url(query: str):
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -50,47 +54,50 @@ def get_audio_url(query: str):
             info = info['entries'][0]
         return info['url'], info.get('title', 'Onbekend nummer')
 
-# 4. Bot Commando's
-@app.on_message(filters.command("start"))
-async def start_handler(client, message):
-    await message.reply_text("👋 Welcome to **AnonMusicBot**! Gebruik `/play` in een GROEP om muziek te luisteren.")
-
-@app.on_message(filters.command("play"))
-async def play_handler(client, message):
-    # BLOKKEER PRIVÉBERICHTEN
-    if message.chat.type == ChatType.PRIVATE:
-        await message.reply_text("❌ Je kunt alleen muziek afspelen in een **Groep** met een actieve Voice Chat, niet hier in een privébericht!")
-        return
-
-    if len(message.command) < 2:
-        await message.reply_text("⚠️ Gebruik: `/play [naam van het nummer]`")
-        return
-
-    query = " ".join(message.command[1:])
-    chat_id = message.chat.id
+@app.post("/webhook")
+async def receive_update(request: Request):
+    data = await request.json()
     
-    status_msg = await message.reply_text(f"🔍 Zoeken naar **{query}**...")
-
-    try:
-        audio_url, title = await asyncio.to_thread(get_audio_url, query)
-        await status_msg.edit_text(f"🎵 Verbinden met de Voice Chat voor: **{title}**...")
-
-        await call_py.play(
-            chat_id,
-            MediaStream(audio_url)
-        )
+    if "message" in data:
+        message = data["message"]
+        chat_id = message["chat"]["id"]
+        text = message.get("text", "")
         
-        await status_msg.edit_text(f"🎶 Nu live te horen in de Voice Chat: **{title}**!")
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            if text.startswith("/play"):
+                query = text.replace("/play", "").strip()
+                
+                if not query:
+                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": "⚠️ Gebruik: `/play [naam van het nummer]`"
+                    })
+                    return {"status": "ok"}
+                
+                status_msg_res = await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": f"🔍 Zoeken naar **{query}**..."
+                })
+                
+                try:
+                    # Haal direct de stream URL op van YouTube via een achtergrond-thread
+                    audio_url, title = await asyncio.to_thread(get_audio_url, query)
+                    
+                    # Bel in bij de Voice Chat van deze groep!
+                    await call_py.play(
+                        chat_id,
+                        MediaStream(audio_url)
+                    )
+                    
+                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": f"🎶 Nu live te horen in de Voice Chat: **{title}**!"
+                    })
 
-    except Exception as e:
-        await status_msg.edit_text(f"❌ Er is een fout opgetreden: {str(e)}")
-
-# 5. Start de applicatie natively
-async def main():
-    await app.start()
-    await call_py.start()
-    print("Telegram Bot en Voice Chat DJ draaien nu vlekkeloos!")
-    await idle()  # DIT IS DE FIX! Geen 'app.idle()' meer!
-
-if __name__ == "__main__":
-    asyncio.run(main())
+                except Exception as e:
+                    await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": f"❌ Fout bij opstarten in Voice Chat: {str(e)}"
+                    })
+                    
+    return {"status": "ok"}
