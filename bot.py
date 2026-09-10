@@ -2,17 +2,16 @@ import os
 import asyncio
 import yt_dlp
 from dotenv import load_dotenv
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
-import httpx # Nodig om webhook te deleten
+from aiohttp import web
+import sys
 
 load_dotenv()
 
-# --- JOUW NIEUWE GEGEVENS ---
+# Jouw gegevens
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8237622987:AAGceFNdp0d2-q4FXlSx63gvO1YkF_b5LCY")
 API_ID = int(os.getenv("API_ID", "37835956"))
 API_HASH = os.getenv("API_HASH", "05685bc34698f8150a2f21cb1c463911")
@@ -29,7 +28,7 @@ call_py = PyTgCalls(bot_client)
 # --- NATIVE PYROGRAM COMMANDO HANDLER ---
 @bot_client.on_message(filters.command("play"))
 async def play_command(client, message: Message):
-    print(f"==== ONTVANGEN COMMANDO: {message.text} van {message.from_user.first_name} ====")
+    print(f"==== ONTVANGEN COMMANDO: {message.text} ====")
     chat_id = message.chat.id
     query = message.text.replace("/play", "").strip()
     
@@ -62,7 +61,7 @@ async def play_command(client, message: Message):
             await status_msg.edit_text("❌ Geen bruikbare, onbeveiligde stream gevonden.")
             return
         
-        # Start direct in de Voice Chat op dezelfde event loop!
+        # Start direct in de Voice Chat
         await call_py.play(
             chat_id,
             MediaStream(audio_url)
@@ -74,31 +73,42 @@ async def play_command(client, message: Message):
         print(f"FOUT IN VOICE CHAT: {str(e)}")
         await status_msg.edit_text(f"❌ Fout bij opstarten in Voice Chat: {str(e)}")
 
+# --- MINI WEB SERVER VOOR RENDER HEALTH CHECK ---
+async def health_check(request):
+    return web.Response(text="Music Bot is alive and polling", status=200)
 
-# --- DE LUS-MAGIE: START BOT BINNEN FASTAPI ---
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print("==== STARTEN PYROGRAM & VOICE CHAT IN LUS ====")
-    # Verwijder oude webhook om zeker te zijn van polling
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
-        print("==== Oude webhook verwijderd ====")
-    except Exception as e:
-        print(f"Kon webhook niet verwijderen (niet erg): {e}")
+async def start_http_server():
+    PORT = int(os.getenv("PORT", 10000))
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.Site(runner, '0.0.0.0', PORT)
+    print(f"==== MINI HTTP SERVER STARTING ON PORT {PORT} ====")
+    await site.start()
 
-    # Start de bot en voice chat clients direct op de juiste event-loop
+async def main():
+    print("==== STARTEN PYROGRAM MUSIC BOT (Standalone w/ HTTP) ====")
+    
+    # Start de bot en voice chat clients
     await bot_client.start()
     await call_py.start()
     print("==== PYROGRAM BOT & VOICE DJ IS READY! ====")
-    yield
-    # Netjes stoppen bij afsluiten
-    await bot_client.stop()
-    print("==== Bot gestopt ====")
+    
+    # Start gelijktijdig de mini webserver
+    http_server_task = asyncio.create_task(start_http_server())
+    
+    # Hou de bot draaiende
+    import pyrogram
+    await pyrogram.idle()
+    
+    # Zorg dat de webserver ook netjes stopt
+    await http_server_task
 
-# Maak de FastAPI app aan met de lifespan
-app = FastAPI(lifespan=lifespan)
-
-@app.api_route("/", methods=["GET", "HEAD"])
-def home():
-    return {"status": "Anon Music Bot Voice Chat is online and free!"}
+if __name__ == "__main__":
+    try:
+        import pyrogram
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot gestopt door gebruiker.")
+        sys.exit(0)
