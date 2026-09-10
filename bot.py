@@ -2,16 +2,20 @@ import os
 import asyncio
 import yt_dlp
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
+import httpx # Nodig om webhook te deleten
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-API_ID = 38561709
-API_HASH = "45cb3c0d9a016faa268a269245e6fe4e"
+# --- JOUW NIEUWE GEGEVENS ---
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8237622987:AAGceFNdp0d2-q4FXlSx63gvO1YkF_b5LCY")
+API_ID = int(os.getenv("API_ID", "37835956"))
+API_HASH = os.getenv("API_HASH", "05685bc34698f8150a2f21cb1c463911")
 
 # Initialiseer de client en py-tgcalls
 bot_client = Client(
@@ -22,6 +26,7 @@ bot_client = Client(
 )
 call_py = PyTgCalls(bot_client)
 
+# --- NATIVE PYROGRAM COMMANDO HANDLER ---
 @bot_client.on_message(filters.command("play"))
 async def play_command(client, message: Message):
     print(f"==== ONTVANGEN COMMANDO: {message.text} van {message.from_user.first_name} ====")
@@ -57,7 +62,7 @@ async def play_command(client, message: Message):
             await status_msg.edit_text("❌ Geen bruikbare, onbeveiligde stream gevonden.")
             return
         
-        # Start direct in de Voice Chat
+        # Start direct in de Voice Chat op dezelfde event loop!
         await call_py.play(
             chat_id,
             MediaStream(audio_url)
@@ -69,16 +74,31 @@ async def play_command(client, message: Message):
         print(f"FOUT IN VOICE CHAT: {str(e)}")
         await status_msg.edit_text(f"❌ Fout bij opstarten in Voice Chat: {str(e)}")
 
-async def main():
-    print("==== STARTEN PYROGRAM MUSIC BOT (Standalone) ====")
+
+# --- DE LUS-MAGIE: START BOT BINNEN FASTAPI ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("==== STARTEN PYROGRAM & VOICE CHAT IN LUS ====")
+    # Verwijder oude webhook om zeker te zijn van polling
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
+        print("==== Oude webhook verwijderd ====")
+    except Exception as e:
+        print(f"Kon webhook niet verwijderen (niet erg): {e}")
+
+    # Start de bot en voice chat clients direct op de juiste event-loop
     await bot_client.start()
     await call_py.start()
     print("==== PYROGRAM BOT & VOICE DJ IS READY! ====")
-    await pyrogram.idle()
-    
-    # Alleen de client netjes stoppen
+    yield
+    # Netjes stoppen bij afsluiten
     await bot_client.stop()
+    print("==== Bot gestopt ====")
 
-if __name__ == "__main__":
-    import pyrogram
-    asyncio.run(main())
+# Maak de FastAPI app aan met de lifespan
+app = FastAPI(lifespan=lifespan)
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def home():
+    return {"status": "Anon Music Bot Voice Chat is online and free!"}
