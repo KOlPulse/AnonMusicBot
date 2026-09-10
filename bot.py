@@ -85,5 +85,6 @@ async def main():
    
 
 if __name__ == "__main__":
+    # Geen try/except of server code meer hier, Render killed het proces wel als de server stopt
     import pyrogram
     asyncio.run(main())
