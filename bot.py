@@ -6,7 +6,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
-import sys # <-- BELANGRIJK
+
 
 load_dotenv()
 
@@ -72,19 +72,7 @@ async def play_command(client, message: Message):
         print(f"FOUT IN VOICE CHAT: {str(e)}")
         await status_msg.edit_text(f"❌ Fout bij opstarten in Voice Chat: {str(e)}")
 
-# --- MINI WEB SERVER VOOR RENDER HEALTH CHECK ---
-async def health_check(request):
-    return web.Response(text="Music Bot is alive and polling", status=200)
 
-async def start_http_server():
-    PORT = int(os.getenv("PORT", 10000))
-    app = web.Application()
-    app.router.add_get('/', health_check)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.Site(runner, '0.0.0.0', PORT)
-    print(f"==== MINI HTTP SERVER STARTING ON PORT {PORT} ====")
-    await site.start()
 
 async def main():
     print("==== STARTEN PYROGRAM MUSIC BOT (Standalone w/ HTTP) ====")
@@ -94,20 +82,8 @@ async def main():
     await call_py.start()
     print("==== PYROGRAM BOT & VOICE DJ IS READY! ====")
     
-    # Start gelijktijdig de mini webserver
-    http_server_task = asyncio.create_task(start_http_server())
-    
-    # Hou de bot draaiende
-    import pyrogram
-    await pyrogram.idle()
-    
-    # Zorg dat de webserver ook netjes stopt
-    await http_server_task
+   
 
 if __name__ == "__main__":
-    try:
-        import pyrogram
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Bot gestopt door gebruiker.")
-        sys.exit(0)
+    import pyrogram
+    asyncio.run(main())
