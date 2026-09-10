@@ -6,8 +6,7 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls
 from pytgcalls.types import MediaStream
-from aiohttp import web
-import sys
+import sys # <-- BELANGRIJK
 
 load_dotenv()
 
