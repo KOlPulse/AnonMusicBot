@@ -11,9 +11,9 @@ from pytgcalls.types import MediaStream
 load_dotenv()
 
 # Jouw gegevens
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8237622987:AAGceFNdp0d2-q4FXlSx63gvO1YkF_b5LCY")
-API_ID = int(os.getenv("API_ID", "37835956"))
-API_HASH = os.getenv("API_HASH", "05685bc34698f8150a2f21cb1c463911")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8916752332:AAGEz5NXf4wQY-wKoqrOaBj2a_6joU_OB9Y")
+API_ID = int(os.getenv("API_ID", "38561709"))
+API_HASH = os.getenv("API_HASH", "45cb3c0d9a016faa268a269245e6fe4e")
 
 # Initialiseer de client en py-tgcalls
 bot_client = Client(
