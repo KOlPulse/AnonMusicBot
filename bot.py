@@ -25,17 +25,25 @@ bot_client = Client(
 call_py = PyTgCalls(bot_client)
 
 # --- NATIVE PYROGRAM COMMANDO HANDLER ---
-@bot_client.on_message(filters.command("play"))
-async def play_command(client, message: Message):
-    print(f"==== ONTVANGEN COMMANDO: {message.text} ====")
-    chat_id = message.chat.id
-    query = message.text.replace("/play", "").strip()
-    
-    if not query:
-        await message.reply("⚠️ Gebruik: `/play [naam van het nummer]`")
+@bot_client.on_message() # Luister naar ALLE berichten, niet alleen filters.command
+async def main_handler(client, message: Message):
+    # DEBUG: Druk ALLES wat de bot ontvangt af in de Render Logs
+    print(f"==== ONTVANGEN BERICHT: {message.text} van {message.from_user.first_name} (ID: {message.from_user.id}) ====")
+
+    # Als het bericht geen tekst heeft, stoppen we hier
+    if not message.text:
         return
-    
-    status_msg = await message.reply(f"🔍 Zoeken naar **{query}**...")
+
+    # Controleer of het een /play commando is
+    if message.text.startswith("/play"):
+        chat_id = message.chat.id
+        query = message.text.replace("/play", "").strip()
+        
+        if not query:
+            await message.reply("⚠️ Gebruik: `/play [naam van het nummer]`")
+            return
+        
+        status_msg = await message.reply(f"🔍 Zoeken naar **{query}**...")
     
     try:
         ydl_opts = {
